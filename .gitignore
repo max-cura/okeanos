@@ -1,0 +1,6 @@
+thalassa-old
+target
+.idea
+.vscode
+build/*/*
+.DS_Store
