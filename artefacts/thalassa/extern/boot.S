@@ -1,17 +1,24 @@
 @ vim:ft=armv6
+@
+@ FILE artefacts/thalassa/extern/boot.S
+@ DESC System entry point upon boot.
+@
 
 #define SUPER_MODE 0b10011
 #define MODE_MASK 0b11111
 
 #define STACK_ADDR 0x8000000
 
+#define EXTERN_KERNEL_FN __tlss_kernel_init
+#define EXTERN_REBOOT_FN __tlss_fast_reboot
+
 @ Op1=0, Rd=reg, CRn=c7, CRm=c5, Op2=4 : Flush prefetch buffer
 #define _prefetch_flush(reg)     \
     mov reg, #0;                \
     mcr p15, 0, reg, c7, c5, 4
 
-.extern _tlss_kernel_init
-.extern _tlss_fast_reboot
+.extern EXTERN_KERNEL_FN
+.extern EXTERN_REBOOT_FN
 
 .section ".text.boot"
 
@@ -33,8 +40,8 @@ _start:
 
     mov sp, #STACK_ADDR
     mov fp, #0
-    bl _tlss_kernel_init
-    bl _tlss_fast_reboot
+    bl EXTERN_KERNEL_FN
+    bl EXTERN_REBOOT_FN
 
 .globl _tlss_arch_put32
 @ r1 -> [r0]

@@ -1,12 +1,22 @@
+#
+# FILE infra/artefacts/thalassa/artefact.mk
+# DESC The actual build system for the `thalassa` artefact.
+#
+
 include infra/artefacts/thalassa/common.mk
 
 #
 # CONFIG
 #
 
+# bcm2835 is arm1176jzf-s which has arch `armv6zk`; it also has VFPv2 so we use the hard float (hf) ABI
+# note that the `hf` is somewhat overloaded; in our case it simply indicates the presence of VFPv2 and the use of its
+# registers in the ABI
 CPU=arm1176jzf-s
 TARGET=armv6zk-none-eabihf
-KLIB=lib$(ARTEFACT).rlib
+# need to use a '.a' since '.rlib' doesn't necessarily have all the stuff we need - the fact that `.rlbi' contains any
+# object code at all is, or so I am informed, an implementation detail.
+KLIB=lib$(ARTEFACT).a
 
 .PHONY: _thalassa_cargo _thalassa_directories
 
@@ -54,7 +64,8 @@ $(ARTEFACT_BUILD_DIR)/boot.o: $(CRATE_DIR)/extern/boot.S
 # VERY IMPORTANT THING!!!
 # ORDER OF OBJECT FILES PASSED TO THE LINKER MATTERS!!!!
 # See: https://web.archive.org/web/20180627210132/webpages.charter.net/ppluzhnikov/linker.html
-# since boot.o is our entry point, and calls into libthalassa, we need the order to be `ld boot.o libthalassa.???`
+# since boot.o is our entry point, and calls into libthalassa, we need the order to be: boot.o libthalassa.(a|rlib|...)
+# Without this, was getting linker errors for undefined `_tlss_kernel_init` and `_tlss_fast_reboot`.
 $(ARTEFACT_BUILD_DIR)/$(ARTEFACT).elf: $(ARTEFACT_BUILD_DIR)/boot.o \
 									   $(_RUST_TARGET_DIR)/$(KLIB)
 	$(INF_ARM_NONE_EABI_GCC) \
@@ -76,12 +87,12 @@ $(ARTEFACT_BUILD_DIR)/$(ARTEFACT).bin: $(ARTEFACT_BUILD_DIR)/$(ARTEFACT).elf
 all: $(ARTEFACT_BUILD_DIR)/$(ARTEFACT).bin \
 	 $(ARTEFACT_BUILD_DIR)/$(ARTEFACT).list
 
-#thalassa-upload: $(ARTEFACT_BUILD_DIR)/$(ARTEFACT).bin
-#	$(INF_PI_INSTALL) $(TTY_PORT) $<
+thalassa-upload: $(ARTEFACT_BUILD_DIR)/$(ARTEFACT).bin
+	$(INF_PI_INSTALL) $(TTY_PORT) $<
 
-clean-build-all: clean-all all
-clean-build-cargo: clean-cargo all
-clean-build-infra: clean-infra all
+rebuild-all: clean-all all
+rebuild-cargo: clean-cargo all
+rebuild-infra: clean-infra all
 
 clean-all: clean-cargo clean-infra
 clean-cargo:

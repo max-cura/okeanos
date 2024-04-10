@@ -1,0 +1,198 @@
+libpi uart_init:
+- gpio set function on GPIO14,15
+- set bit 0 on 215004 AUXENB
+- then various things with the miniuart control registers
+
+background knowledge:
+
+There are two UARTs present on the Zero; the Mini UART (UART1) and a PL011 (UART0).
+They both use GPIOs 14 and 15, which map to board pins 8 and 10, respectively.
+GPIO14 is UART0_TXD/UART1_TXD and GPIO15 is UART0_RXD/UART1_RXD.
+
+
+SECTION 2.1
+
+BLOCK: SPI0, SPI1, Mini UART
+(offset 7e21 5000)
+
+Block control Registers
+215000	AUX_IRQ		Auxiliary Interrupt Status 	3
+215004	AUX_ENABLES	Auxiliary Enables		3
+
+Mini Uart Registers
+215040	AUX_MU_IO_REG	I/O data		8
+215044	AUX_MU_IER_REG	interrupt enable	8
+215048	AUX_MU_IIR_REG	interrupt identify	8
+21504c	AUX_MU_LCR_REG	line control		8
+215050	AUX_MU_MCR_REG	modem control		8
+215054	AUX_MU_LSR_REG	line status		8
+215058	AUX_MU_MSR_REG	modem status		8
+21505c	AUX_MU_SCRATCH	scratch			8
+215060	AUX_MU_CNTL_REG	extra control		8
+215064	AUX_MU_STAT_REG	extra status		8
+215068	AUX_MU_BAUD_REG	baudrate		8
+
+AUX registers:
+- Auxiliary IRQ status register can help to hierarchically determine the source of an interrupt
+
+AUXIRQ
+	31:3 			reserved ; write zero ; read as don't care
+	2	spi2irq		if set spi2 has int pending 	rdonly rst 0
+	1	spi1irq		...				rdonly rst 0
+	0	miniuartirq	...				rdonly rst 0
+AUXENB
+	31:3			reserved ; write zero ; read as don't care
+	2	spi2enb		if set, spi2module enabled. clear disabled.	rst 0
+	1	spi1enb		...						rst 0
+	0	miniuartenb	if set, uart will immediately start receiving	rst 0
+				data, esp. if the UART1_RX line is low. ...
+
+- if enable bits are clear, NO ACCESS to peripheral i.e. registers inaccessible
+- GPIO should be set up before enabling UART
+- UART core built to emulate 16550 behaviour
+	- when enabled then any data at the inputs will immediately be received
+	- then if UART1_RX line is low b/c GPIO not yet set up, UART will start 
+	  receiving NUL characters
+- valid stops bits are not required for the UART
+- upon reset, baudrate will be 0 and system clock will be 250MHz
+- so 2.5us suffice to fill the receive FIFO!!
+
+SECTION 2.2
+
+Features:
+- 7 or 8 bit, 1start 1stop bits, no parity, breakgen
+- 8 symbol FIFO for rx, tx, SMALL!
+- SW controlled RTS, SW readable CTS
+- auto flow control w programmable FIFO level
+- 16550-like registers
+- baudrate derived from system clock! <- IMPORTANT (clock at 250MHz)
+DOES NOT HAVE:
+- break detection
+- framing error detection
+- parity bit
+- recv timeout interrupt
+- DCD, DSR, DTR, RI
+
+SECTION 2.2.1
+- UART1_CTS and UART1_RX inputs are synchronized and take 2 system clock cycles before they are processed.
+- after receiving a start bit and 8 (or 7) data bits the receiver waits for one half bit time and then starts scanning for the next start bit; it does NOT check if the stop bit is high or wait for it to appear.
+- as a result, if the UART1_RX line is continuously low (due to break condition, connection error, or GPIO setup) the receiver will continuously receive 00h symbols
+- baudrate = system_clock_freq / (8 * (baudrate_reg + 1)). At init, with clock 250MHz and AUX_MU_BAUD_REG in its reset state (0), this is 31.25 Mbits/sec.
+- LS8b of the data register is used; on write, high24 are ignored, on read high24 are zero
+
+SECTION 2.2.2
+
+AUX_MU_IO_REG	215040h
+	31:8	reserved write zero read as dont care
+	7:0	LS8b of the 16-bit baudrate register ONLY IF LCR.DLAB=1	rw	0
+	7:0	dlab=0, put data in xmit FIFO provided not full		w	0
+	7:0	dlab=0, read data from recv FIFO provided not empty	r	0
+
+AUX_MU_IER_REG	215044h
+	31:8	reserved write zero read as dont care
+	7:0	MS8b 16-bit baudrate register ONLY IF LCR.DLAB=1	rw	0
+	7:2	reserved write zero read as dont care
+> ERRATA: these are RW, 0 is recvintenb (not 1)
+	1	dlab=0 xmitintenb. interrupt if FIFO empty		rw	0
+	0	dlab=0 recvintenb. interrupt if FIFO holds >=1 byte	rw	0
+> ERRATA CONT.
+>	3:2 are required in order to receive interrupts?
+> 	based on https://web.archive.org/web/20180826215135/http://www.ti.com/lit/ds/symlink/pc16550d.pdf we have:
+	3	ELSI enable receiver line status interrupt
+	2	EDSSI enable modem status interrupt
+> unsure exactly what "are required" means.
+
+AUX_MU_IIR_REG	215048h
+	31:8	reserved write zero read as dont care
+	7:6	FIFO enables (always read as 1)				r	11
+	5:4	read zero						r	00
+	3	read zero (mini UART has no timeout fn)			r	0
+	2:1	read: interrupt ID bit					rw	00
+		00 no int 01 xmit holding reg empty 10 recv holds valid byte 11 imposs
+		write: set bit 1 clear recv FIFO ; set bit 2 clear xmit FIFO
+	0	interrupt pending					r	1
+
+AUX_MU_LCR_REG	21504ch
+	7	DLAB (don't use)					rw	0
+	6	Break. Set high to pull TX line low continuously	rw	0
+		if held for at least 12 bits, indicates break condition
+> ERRATA: bit 1 must be set for 8-bit mode
+	5:1	reserved write zero read as dont care
+	0	data size; clear 7bit set 8bit				rw	0
+
+AUX_MU_MCR_REG	215050h
+	31:8 	reserved write zero read as dont care
+	7:2	...
+	1	RTS. ignore
+	0	reserved write zero read as dont care
+
+AUX_MU_LSR_REG	215054h
+	31:8
+	7
+	6	xmit idle. set if FIFO empty and xmit idle		r	1
+		idle = finished shifting out the last bit
+	5	xmit "empty". FIFO can accept at least one byte		r	0
+	4:2	reserved write zero read as dont care
+	1	recv overrun.
+		one or more characters arrived while recv FIFO full.
+		cleared when this register is read.
+		for non-destructive reads, use AUX_MU_STAT_REG		r/c	0
+	0	data ready. recv FIFO holds at least one symbol		r	0
+
+AUX_MU_MSR_REG	215058h
+	31:8
+	7:6
+	5
+	4	CTS status. inverse of the UART1_CTS input.		r	1
+	3:0
+
+AUX_MU_SCRATCH	21505ch
+	31:8
+	7:0	scratch ignore
+
+AUX_MU_CNTL_REG	215060h
+	31:8
+	7	cts assert level. ignore
+	6	rts assert level. ignore
+	5:4	rts auto flow level. ignore
+	3	enable xmit auto flow control using cts.
+	2	enable recv auto flow control using rts.
+	1	txenb. set=xmit enb.					rw	1
+	0	rxenb. set=recv enb.					rw	1
+
+- note that for txenb/rxenb, any symbols in progress of tx/rx will be finished.
+
+AUX_MU_STAT_REG	215064h
+	31:28	reserved write zero read as dont care
+	27:24	xmit FIFO fill level 0-8				r	0
+	23:20
+	19:16	recv FIFO fill level 0-8				r	0
+	15:10
+	9	xmitter done. set if xmit idle and FIFO empty. 2&8	r	1
+	8	xmit FIFO empty = FIFO empty (fr this time)		r	1
+	7	CTS line.						r	0
+	6	RTS status.						r	0
+	5	xmit FIFO full. inverse of bit 1			r	0
+	4	recv overrun. nondestructive LSR.1. Cleared in sync	r	0
+	3	xmit idle.						r	1
+	2	recv idle. can change unless recv disabled.		r	1
+	1	space available. set if xmitFIFO can accept more symbol	r	0
+	0	symbol available. set if recvFIFO cont >=1 symb		r	0
+
+2_RECVIDLE bit is only useful is receiver is disabled.
+3_XMITIDLE bit will only be set for a short time-use 9_XMITDONE instead
+6_RTSSTAT only useful in auto flow control mode.
+
+AUX_MU_BAUD_REG	215068h
+	31:16
+	15:0	baudrate
+
+Disabling the PL011 (not necessary, I think)
+USRT mapped at 7e201000 *(listed as 72e0100, which is wrong. see errata for p177)
++30h	CR	control register	32
+
+CR
+	...
+	0	UARTEN	UART enable	RW	rst 0
+
+> UARTEN. 0=disabled. if in the middle of transmission or reception, complete current character before stopping. 1=enabled.

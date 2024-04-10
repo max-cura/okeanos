@@ -1,0 +1,27 @@
+Peripherals owns specific *devices*
+
+Specific devices look like
+```rs
+pub struct Uart1 {
+	_marker: PhantomData<*const ()>,
+}
+unsafe impl Send for Uart1 {}
+impl Uart1 {
+	pub const PTR : *const uart1::RegisterBlock = 0x20215040 as *const _;
+	pub unsafe fn steal() -> Self { Self { _marker: PhantomData } }
+}
+```
+
+Register block is then a C-layout struct of specific registers:
+```rs
+pub struct RegisterBlock {
+	// ...
+	iir: IIR
+	// ...
+}
+```
+
+Specific registers are then
+```rs
+pub type IIR = Reg<iir::IIR_SPEC>
+```

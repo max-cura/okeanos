@@ -58,34 +58,3 @@ SECTIONS {
         __tlss_heap_start__ = .;
     }
 }
-
-/* from the cs240lx repo */
-/*
-SECTIONS {
-    .text 0x8000 :  {
-        __code_start____ = .;
-        KEEP(*(.text.boot))
-        *(.text*)
-        __code_end____ = .;
-        . = ALIGN(8);
-    }
-    .rodata : { *(.rodata*) }
-    .data : {
-            __data_start____ = .;
-            *(.data*)
-            . = ALIGN(4);
-            __data_end____ = .;
-    }
-    .bss : {
-        . = ALIGN(4);
-        __bss_start____ = .;
-        *(.bss*)
-        *(COMMON)
-        . = ALIGN(8);
-        __bss_end____ = .;
-        . = ALIGN(8);
-        __prog_end____ = .;
-        __heap_start____ = .;
-    }
-}
- */
