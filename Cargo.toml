@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+    "artefacts/thalassa",
+    "artefacts/theseus-common",
+    "artefacts/theseus-device",
+    "artefacts/theseus-upload"
+]

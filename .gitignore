@@ -3,4 +3,5 @@ target
 .idea
 .vscode
 build/*/*
+doc/.obsidian
 .DS_Store

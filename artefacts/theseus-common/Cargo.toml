@@ -1,0 +1,9 @@
+[package]
+name = "theseus-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.197", default-features = false, features = ["derive"] }
+postcard = { version = "1.0.8", default-features = false, features = []}
+crc32fast = { version = "1.4.0", default-features = false, features = [] }

@@ -3,22 +3,13 @@ name = "thalassa"
 version = "0.1.0"
 edition = "2021"
 
-#[profile.dev]
-#panic = "abort"
-#[profile.release]
-#panic = "abort"
-
-[profile]
-dev.panic = "abort"
-release.panic = "abort"
-
 [lib]
 crate-type = ["staticlib"]
-#crate-type=["rlib"]
 
 [dependencies]
 embedded-hal = { version = "1.0.0" }
 embedded-io = { version = "0.6.1" }
-bcm2835-lpa = { version = "0.4.0" }
+bcm2835-lpa = { version = "0.4.0", features = ["critical-section"] }
 portable-atomic = { version = "1.6.0", features = ["critical-section"] }
-critical-section = "1.1.2"
+critical-section = { version = "1.1.2", features = ["restore-state-bool"] }
+lock_api = { version = "0.4.11", features = [] }

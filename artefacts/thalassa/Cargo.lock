@@ -3,11 +3,18 @@
 version = 3
 
 [[package]]
+name = "autocfg"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1fdabc7756949593fe60f30ec81974b613357de856987752631dea1e3394c80"
+
+[[package]]
 name = "bcm2835-lpa"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97910c8c3ee90736ca564f1ede9f5c2403d3cfdef212296d7df2b82badea3a97"
 dependencies = [
+ "critical-section",
  "portable-atomic 0.3.20",
  "vcell",
 ]
@@ -31,6 +38,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
+name = "lock_api"
+version = "0.4.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c168f8615b12bc01f9c17e2eb0cc07dcae1940121185446edc3744920e8ef45"
+dependencies = [
+ "autocfg",
+ "scopeguard",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "0.3.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -49,6 +66,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "scopeguard"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
 name = "thalassa"
 version = "0.1.0"
 dependencies = [
@@ -56,6 +79,7 @@ dependencies = [
  "critical-section",
  "embedded-hal",
  "embedded-io",
+ "lock_api",
  "portable-atomic 1.6.0",
 ]
 

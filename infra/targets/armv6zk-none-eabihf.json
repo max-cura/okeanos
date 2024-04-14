@@ -24,7 +24,6 @@
     "panic-strategy": "abort",
     "disable-redzone": true,
     "max-atomic-width": 64,
-    "atomic-cas": false,
     "crt-objects-fallback": "false",
     "emit-debug-gdb-scripts": false,
     "asm-args": [

@@ -1,5 +1,5 @@
 use bcm2835_lpa::GPIO;
-use crate::arch::mem_barrier::data_synchronization_barrier;
+use crate::arch::barrier::data_synchronization_barrier;
 
 pub enum Logic {
     High,

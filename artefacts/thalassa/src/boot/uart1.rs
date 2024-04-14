@@ -1,5 +1,5 @@
 use bcm2835_lpa::{AUX, GPIO, UART1};
-use crate::arch::mem_barrier::data_synchronization_barrier;
+use crate::arch::barrier::data_synchronization_barrier;
 
 // 250MHz
 const CLOCK_RATE : u32 = 250_000_000;

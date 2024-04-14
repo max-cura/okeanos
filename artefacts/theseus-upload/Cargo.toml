@@ -1,0 +1,18 @@
+[package]
+name = "theseus-upload"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+theseus-common = { path = "../theseus-common" }
+clap = { version = "4.5.4", features = ["derive"] }
+clap-num = "1.1.1"
+miniz_oxide = { version = "0.7.2" }
+color-eyre = "0.6.3"
+#nix = { version = "0.28.0", default-features = false, features = ["term", "ioctl"] }
+serialport = { version = "4.3.0" }
+log = "0.4.21"
+stderrlog = "0.6.0"
+postcard = { version = "1.0.8", features = ["use-std"] }
+cobs = "0.2.3"
+crc32fast = "1.4.0"

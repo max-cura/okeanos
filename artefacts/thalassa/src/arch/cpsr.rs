@@ -10,7 +10,7 @@ pub unsafe fn unsafe_try_disable_irqs() -> Result<(), ()> {
         tmp = out(reg) _,
     );
     if (t1 & 7) == 0 {
-        // interrupts were enabled but are now
+        // interrupts were enabled but are now disabled
         Ok(())
     } else {
         // interrupts already disabled
@@ -31,7 +31,7 @@ pub unsafe fn unsafe_try_enable_irs() -> Result<(), ()> {
         // interrupts were already enabled
         Err(())
     } else {
-        // interrupts disabled and are now enabled
+        // interrupts were disabled and are now enabled
         Ok(())
     }
 }

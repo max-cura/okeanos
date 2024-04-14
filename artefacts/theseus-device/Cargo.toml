@@ -1,0 +1,14 @@
+[package]
+name = "theseus-device"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+embedded-hal = { version = "1.0.0" }
+embedded-io = { version = "0.6.1" }
+bcm2835-lpa = { version = "0.4.0", features = [] }
+
+theseus-common = { path = "../theseus-common" }

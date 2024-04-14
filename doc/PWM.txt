@@ -1,0 +1,150 @@
+PWM algorithm:
+
+To latch HIGH for N/M cycles
+	set c=0
+	c = c + N
+	if c >= M
+		c = c - M
+		send 1
+	else
+		???
+		send 0
+		???
+
+MODES OF OPERATION:
+ PWM mode and Serializer mode
+
+PWM sub-modes:
+	MSEN=0
+uses the algorithm above ^
+data to be sent is interpreted as the value N
+number of clock cycles (range) used to send data is then M
+channel sends output continuously as long as data register is used, or buffer is used and not empty
+	MSEN=1
+Sends serial data with the following mode:
+
+	|<--- M --->|
+	 ____________		 ______
+________/            \__________/
+	|<---------- S ------->|
+where M is the data to be sent and S is the range
+Channel sends output continuously as long as the data register is used or buffer is used and not empty
+
+Serializer mode:
+- each channel is also capable of working as a serializer. In this mode, data written in buffer or data register is sent serially
+
+QUICK REF
+
+PWM DMA is mapped on DMA channel 5
+GPIOs have the following channels:
+PWM0:		PWM1
+GPIO12	ALT0	GPIO13	ALT0
+GPIO18	ALT5	GPIO19	ALT5
+GPIO40	ALT0	GPIO41	ALT0
+		GPIO45	ALT0
+GPIO52	ALT1	GPIO53	ALT1
+PWM clock source and frequency is controlled in CPRMAN
+
+REGISTER BLOCK
+(offset 7e20 c000)
+0	CTL	Control (both channels) - 8:15 should control ch2
+4	STA	Status
+8	DMAC	DMA Configuration
+10	RNG1	Channel 1 Range
+14	DAT1	Channel 1 Data
+18	FIF1	FIFO Input
+20	RNG2	Channel 2 Range
+24	DAT2	Channel 2 Data
+
+CTL	7e20 c000
+------------------
+31:16		reserved write zero read as don't care
+15	MSEN2	ch2 0=pwm 1=m/s						rw	0
+14
+13	USEF2	ch2 use fifo; 0=data register xmitted 1=fifo used4 xmit	rw	0
+12	POLA2	ch2 0=0lo 1hi 1=1lo 0hi					rw	0
+11	SBIT2	ch2 silence bit - output state when no xmission occurs	rw	0
+10	RPTL2	ch2 rep last data 0=xmit intr FIFO empty 1=rep last	rw	0
+9	MODE2	ch2 0=pwm 1=serializer					rw	0
+8	PWEN2	ch2 enable 0=disabled 1=enabled
+7	MSEN1	ch1 0=pwm 1=m/s						rw	0
+6	CLRF1	clear fifo 1=clear fifo 0=no effect			rw	0
+> MC: states as readonly but "this bit always reads 0" and clearly a clearbit like
+> this should have write, so I'm interpreting it as RW
+5	USEF1
+4	POLA1
+3	SBIT1
+2	RPTL1
+1	MODE1
+0	PWEN1
+
+Operation:
+- PWENi is enable/disable; note that all registers and FIFO are writable without setting, but it enables the channel and xmitter state machine
+- in MODEi=1 and possibly in =0, data xmitted MSB first and truncated or zero-patted depending on PWM_RNGi
+- SBITi is output state when no xmit takes place - also the zero polarity for zero padding in MODEi=1
+- POLAi when high inverts output
+- USEFi controls use of data register vs FIFO
+- CLRF clears FIFO
+- MSENi determines the PWM algorithm when MODEi=0
+
+STA	7e20 c004
+------------------
+31:13
+12	STA4	current channel state, 1=xmitting, 0=not		rw	0
+11	STA3
+10	STA2
+9	STA1
+8	BERR	bus error: 1 if error while writing to registers via	rw	0
+		APB. This may happen if bus tries to write successively
+		to the same set of registers faster than the
+		synchroniser block can cope with. Multiple switching may
+		occur and contaminate the data during synchronization.
+		Software should clear this bit by writing 1.
+		Writing zero has no effect.
+7	GAPO4	there has been a gap between transmission of two	rw	0
+		consecutive data from FIFO (eg if FIFO empties after
+		state machine has sent a word and waits for the next).
+		If RPTLi is set, this will not occur. Write 1 to clear.
+6	GAPO3
+5	GAPO2
+4	GAPO1
+3	RERR1	read when empty error. clear by write 1.
+2	WERR1	write when full error. clear by write 1.
+1	EMPT1	empty status of FIFO. logic high.
+0	FULL1	full states of FIFO. logic high.
+
+DMAC	7e20 c008
+------------------
+31	ENAB	0=disable 1=enable					rw	0
+30:16
+15:8	PANIC	DMA threshold for PANIC signal				rw	0x7
+7:0	DREQ	DMA threshold for DREQ signal				rw	0x7
+
+RNG1	7e20 c010
+------------------
+31:0	PWM_RNGi							rw	0x20
+
+> In PWM mode, evenly distributed pulses are sent within the period of length defined by this.
+In serial mode, serialized data is sent in the same time period.
+If PWM_RNGi<32, only the first PWM_RNGi bits are sent, resulting in a truncation.
+If PWM_RNGi>32, excess zero bits are padded at the end of data.
+
+
+DAT1	7e20 c014
+------------------
+31:0	PWM_DATi							rw	0
+
+> USEFi=0
+
+FIF1	7e20 c018
+------------------
+31:0	PWM_FIFO							wo	0
+
+> FIFO input used for ALL channels
+> note that when multiple channels have USEFi=1, then FIFO will be treated as an
+> interleaved stream.
+> RPTLi are not meaningful when FIFO is shared so sharing channels must set RPTLi=0
+
+Operations details:
+- FIFO is 16x32
+- clk_pwm is nominally 100MHz

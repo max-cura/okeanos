@@ -1,12 +1,8 @@
 use core::panic::PanicInfo;
 use bcm2835_lpa::Peripherals;
 use crate::boot::fmt::Uart1;
-use crate::panic::PanicFn;
 use crate::uprintln;
 use core::fmt::Write;
-
-pub static BOOT_PANIC_HALT : PanicFn = boot_panic_halt;
-pub static BOOT_PANIC_SERIAL : PanicFn = boot_panic_serial;
 
 pub fn boot_panic_serial(info: &PanicInfo) -> ! {
     let peripherals = unsafe { Peripherals::steal() };

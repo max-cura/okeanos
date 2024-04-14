@@ -1,0 +1,97 @@
+vim:tabstop=8
+
+SPI0
+- supports 3wire or 2wire
+
+SPI0_CE1_N	GPIO7	ALT0
+SPI0_CE0_N	GPIO8	ALT0
+SPI0_MISO	GPIO9	ALT0
+SPI0_MOSI	GPIO10	ALT0
+SPI0_SCLK	GPIO11	ALT0
+
+SPI Register Map
+(offset 7e20 4000)
+20 4000	CS	SPI Master Control and Status		32
+20 4004	FIFO	SPI Master TX and RX FIFOs		32
+20 4008 CLK	SPI Master Clock Divider		32
+20 400c	DLEN	SPI Master Data Length			32
+20 4010 LTOH	SPI LOSSI mode TOH			32
+20 4014 DC	SPI DMA DREQ Controls			32
+
+CS 7e20 4000
+	31:26			reserved write zero read as dont care
+	25	LEN_LONG	LOSSI data word length				rw	0
+	24	DMA_LEN		LOSSI DMA mode enable				rw	0
+	23	CSPOL2		Chip Select 2 Polarity, 0=active lo 1=active hi	rw	0
+	22	CSPOL1
+	21	CSPOL0
+	20	RXF		0=RXFIFO not full 1=RXFIFO full			r	0
+				No further serial data will be sent/recvd from FIFO
+	19	RXR		0=RXFIFO less than full (or not active TA=0)	r	0
+				1=RXFIFO ??
+> ERRATA: unknown function ; possibly set bit when more than half full
+-- CLEAR by setting TA to 0
+	18	TXD		0=TXFIFO full 1=TXFIFO has space for >=1 byte	r	1
+	17	RXD		0=RXFIFO empty 1=RXFIFO has >=1 byte		r	0
+	16	DONE		0=transfer in progress (or not active TA=0)	r	0
+				1=transfer complete. clear by writing to TXFIFO
+				or set TA 0
+	15	TE_EN		unused
+	14	LMONO		unused
+	13	LEN		Lossi ENable					rw	0
+	12	REN		read enable if using bidi mode. 0=write, 1=read	rw	1
+	11	ADCS		automatically deassert chip select (DMA xfer)	rw	0
+	10	INTR		0=no intr on RXFIFO 1=gen intr while rxr=1	rw	0
+	9	INTD		0=no intr on xfer complete 1=gen intr when DONE	rw	0
+	8	DMAEN		0=no dma requests 1=enable dma operation	rw	0
+	7	TA		transfer active
+- 0=transfer not active
+CS lines are all high (assuming CSPOL=0), RXR and DONE are 0, writes to SPIFIFO write data into bits -0 of SPICS allowing DMA data blocks to set mode before sending data
+- 1=transfer active
+CS lines are set according to CS bits and CSPOL, writes to SPIFIFO write data to TX FIFO. TA is cleared by a dma_frame_end pulse from the DMA controller
+	6	CSPOL		0=select lines active lo 1=active hi		rw	0
+	5:4	CLEAR		FIFO clear 00=no action	x1=tx fifo oneshot	rw	0
+				1x=rx fifo one shot
+	3	CPOL		clock polarity 0=rest state low 1=rest state hi	rw	0
+	2	CPHA		clock phase					rw	0
+				0=1st sclk transition at middle of data bit
+				1=... at beginning of data bit
+	1:0	CS		00=CS0 01=CS1 10=CS2 11=reserved		rw	0
+
+FIFO 7e20 4004
+	31:0	DATA								rw	0
+- DMA mode (DMAEN set)
+if TA is clear, first 32-bit write to this register will control SPIDLEN and SPICS, while subsequent reads and writes will be taken as four-byte data words to be read/written to the FIFOs
+- Poll/Interrupt Mode (DMAEN clear, TA set)
+writes to the register write bytes to TXFIFO
+reads from register read bytes from RXFIFO
+
+CLK 7e20 4008
+	31:16			reserved write zero read as dont care
+	15:0	CDIV		sclk = core clock / cdiv			rw	0
+
+- CDIV must be a power of 2, odd numbers rounded down.
+- Max SPI clock rate is of the APB clock
+
+DLEN 7e20 400c
+	31:16			reserved write zero read as dont care
+	15:0	LEN		number of bytes to transfer - DMA mode only
+
+LTOH 7e20 4010
++ LoSSI output hold delay
+	31:4			reserved write zero read as dont care
+	3:0	TOH		sets output hold delay in APB clocks
+
+DC 7e20 4014
++ controls the generation of DREQ and panic signals to an external DMA engine
++ DREQ signals are generated when the FIFOs reach their defined levels and need servicing
++ Panic signals instruct the external DMA engine to raise priority of AXI requests
+	(unused)
+
+Operation
+
+Polled:
+- set CS, CPOL, CPHA as required, set TA=1
+- poll TXD writing bytes to SPI_FIFO, rxd reading bytes from SPI_FIFO untill all data written
+- poll DONE until it goes to 1
+- set TA=0

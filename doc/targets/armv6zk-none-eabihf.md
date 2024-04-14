@@ -52,6 +52,9 @@ Truthfully, I'm unsure about max-atomic-width--it's possible that this should be
 64 on armv6-unknown-freebsd so I'm not really sure what's going on.
 ```json
     "max-atomic-width": 64,
+```
+okay, so it turns out i needed to set this to false:
+```DISABLE
     "atomic-cas": false,
 ```
 Don't know what this does:
