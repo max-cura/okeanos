@@ -1,3 +1,4 @@
+use core::time::Duration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -55,3 +56,9 @@ pub enum MessageContent<'a> {
 // 1111 1111 1010 1010 0111 0111 0101 0101
 pub const MESSAGE_PRECURSOR: u32 = 0xffaa7755;
 
+/// Timeout while blocking on incoming message.
+pub const RECEIVE_TIMEOUT: Duration = Duration::from_millis(10);
+/// Timeout before either side decides to fall back to default baud rate.
+pub const SET_BAUD_RATE_TIMEOUT: Duration = Duration::from_millis(50);
+/// Number of retries for retry-capped messages.
+pub const RETRY_ATTEMPTS_CAP: usize = 10;

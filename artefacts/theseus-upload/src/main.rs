@@ -1,4 +1,5 @@
 #![feature(iter_intersperse)]
+#![feature(ascii_char)]
 
 pub mod args;
 pub mod upload;

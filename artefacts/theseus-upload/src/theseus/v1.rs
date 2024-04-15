@@ -1,15 +1,15 @@
+use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
 use std::process::exit;
 use std::time::Duration;
 use color_eyre::eyre;
 use serialport::{SerialPort, TTYPort};
+use theseus_common::cobs::{FeedState, LineDecoder};
 use theseus_common::theseus::{ProgramCRC32, TheseusVersion};
-use theseus_common::theseus::v1::{MESSAGE_PRECURSOR, MessageContent};
+use theseus_common::theseus::v1::{SET_BAUD_RATE_TIMEOUT, MESSAGE_PRECURSOR, MessageContent, RETRY_ATTEMPTS_CAP, RECEIVE_TIMEOUT};
 use crate::args::Args;
 use crate::bin_name;
 use crate::io::RW32;
-
-const READ_TIMEOUT : Duration = Duration::from_millis(50);
 
 #[derive(Debug, Copy, Clone)]
 enum State {
@@ -48,7 +48,7 @@ impl State {
 }
 
 pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
-    tty.set_timeout(READ_TIMEOUT)?;
+    tty.set_timeout(RECEIVE_TIMEOUT)?;
 
     let program_data = {
         let raw_data = std::fs::read(args.bin_file.as_path())?;
@@ -60,7 +60,7 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
         crc.finalize()
     };
 
-    let mut incoming_msg_buf : Vec<u8> = Vec::new();
+    let mut incoming_msgs_buf : VecDeque<MessageRaw> = VecDeque::new();
     let mut outgoing_msg : MessageContent;
     let mut state : State;
 
@@ -72,83 +72,51 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
         version: TheseusVersion::TheseusV1 as u32,
     };
 
-    loop {
+    let mut retries_since_last_received = 0;
+    // we don't track retries during program transmission, since we don't know how long CRC or
+    // decompression will take.
+    let mut track_retries = true;
+
+    'outer: loop {
         send_message(tty, &outgoing_msg).inspect_err(|e| {
             log::error!("[{}]: Failed to send message: {}", bin_name(), e);
         })?;
 
-        if !try_recv_message(tty, &mut incoming_msg_buf)? { continue }
-        let msg = postcard::from_bytes(&incoming_msg_buf).map_err(|e| eyre::eyre!("try_recv_message: Deserialization failed: {e}"))?;
+        if !try_recv_messages(tty, &mut incoming_msgs_buf)? {
+            if track_retries {
+                if retries_since_last_received == RETRY_ATTEMPTS_CAP {
+                    log::error!("[{}]: Failed to send after {} retries. Aborting.", bin_name(), RETRY_ATTEMPTS_CAP);
+                    exit(1);
+                }
+                log::trace!("[{}]: Hit read timeout, retrying ({retries_since_last_received}/{})", bin_name(), RETRY_ATTEMPTS_CAP);
+                retries_since_last_received += 1;
+            } else {
+                log::trace!("[{}]: Hit read timeout, retrying (unlimited).", bin_name())
+            }
+            continue
+        }
+        while let Some(incoming_msg_buf) = incoming_msgs_buf.pop_front() {
+            let msg = postcard::from_bytes(&incoming_msg_buf.content)
+                .map_err(|e| eyre::eyre!("try_recv_message: Deserialization failed: {e}"))?;
 
-        match msg {
-            // Device->Host messages
-            MessageContent::PrintMessageRPC { message } => {
-                // special message that can come in at any time
-                log::info!("[{}]: < {}", bin_name(), std::str::from_utf8(message)
+            match msg {
+                // Device->Host messages
+                MessageContent::PrintMessageRPC { message } => {
+                    // special message that can come in at any time
+                    log::info!("[{}]: < {}", bin_name(), std::str::from_utf8(message)
                     .map(ToString::to_string)
                     .unwrap_or_else(|e| format!("<invalid UTF-8: {e}>")));
-            }
-            MessageContent::RequestProgramInfoRPC => {
-                // expected in TransitioningBaudRate and SettingProtocolVersion
-                match state {
-                    // State::TransitioningBaudRate => {
-                    //     // todo!()
-                    // }
-                    State::SettingProtocolVersion => {
-                        if args.baud == tty.baud_rate().unwrap() {
-                            // go straight to SendingProgramInfo
-                            log::debug!("transition: SettingProtocolVersion -> SendingProgramInfo");
-                            state = State::SendingProgramInfo;
-                            outgoing_msg = MessageContent::ProgramInfo {
-                                load_at_address: args.address,
-                                program_size: program_data.len() as u32,
-                                program_crc32,
-                            };
-                        } else {
-                            // go to SetBaudRateRPC
-                            log::debug!("transition: SettingProtocolVersion -> SettingBaudRate");
-                            state = State::SettingBaudRate;
-                            outgoing_msg = MessageContent::SetBaudRateRPC {
-                                baud_rate: args.baud,
-                            };
-                        }
-                    }
-                    _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
                 }
-            }
-            MessageContent::BaudRateAck { possible } => {
-                // expected in SettingBaudRate
-                match state {
-                    State::SettingBaudRate => {
-                        if possible {
-                            // received ack
-                            log::debug!("[{}]: Attempting to set baud rate to {}", bin_name(), args.baud);
-                            send_message(tty, &MessageContent::BaudRateReady).inspect_err(|e| {
-                                log::error!("[{}]: Failed to send message: {}", bin_name(), e);
-                            })?;
-
-                            tty.set_baud_rate(args.baud)?;
-
-                            let brr_send_time = std::time::Instant::now();
-
-                            let mut succeeded = false;
-
-                            'brr: while brr_send_time.elapsed() < Duration::from_millis(50) {
-                                let mut v = Vec::new();
-                                if !try_recv_message(tty, &mut v)? { continue 'brr }
-                                let msg : MessageContent = postcard::from_bytes(&v).map_err(|e| eyre::eyre!("try_recv_message: Deserialization failed: {e}"))?;
-
-                                if let MessageContent::RequestProgramInfoRPC { .. } = msg {
-                                    succeeded = true;
-                                    break 'brr
-                                } else {
-                                    continue 'brr
-                                }
-                            }
-
-                            if succeeded {
-                                log::info!("[{}]: Set baud rate to {}", bin_name(), args.baud);
-                                log::debug!("transition: SettingBaudRate -> SendingProgramInfo");
+                MessageContent::RequestProgramInfoRPC => {
+                    // expected in TransitioningBaudRate and SettingProtocolVersion
+                    match state {
+                        // State::TransitioningBaudRate => {
+                        //     // todo!()
+                        // }
+                        State::SettingProtocolVersion => {
+                            if args.baud == tty.baud_rate().unwrap() {
+                                // go straight to SendingProgramInfo
+                                log::debug!("transition: SettingProtocolVersion -> SendingProgramInfo");
                                 state = State::SendingProgramInfo;
                                 outgoing_msg = MessageContent::ProgramInfo {
                                     load_at_address: args.address,
@@ -156,82 +124,138 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
                                     program_crc32,
                                 };
                             } else {
-                                log::error!("[{}]: Encountered timeout waiting for baud rate change. Retrying.", bin_name());
-
-                                tty.set_baud_rate(115200)?;
-
-                                // no state change, no outgoing message change.
+                                // go to SetBaudRateRPC
+                                log::debug!("transition: SettingProtocolVersion -> SettingBaudRate");
+                                state = State::SettingBaudRate;
+                                outgoing_msg = MessageContent::SetBaudRateRPC {
+                                    baud_rate: args.baud,
+                                };
                             }
-                        } else {
-                            log::error!("[{}]: Failed to set baud rate: device error. Aborting.", bin_name());
-                            exit(1);
                         }
+                        _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
                     }
-                    _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
                 }
-            }
-            MessageContent::RequestProgramRPC { crc_retransmission, chunk_size: chsz } => {
-                // expected in SendingProgramInfo
-                match state {
-                    State::SendingProgramInfo => {
-                        if crc_retransmission != program_crc32 {
-                            log::error!("[{}]: Received corrupted retransmitted CRC in RequestProgramRPC: expected {program_crc32} received {crc_retransmission}", bin_name());
-                        } else {
-                            log::debug!("transition: SendingProgramInfo -> SendingProgramReady");
-                            log::info!("[{}]: Setting chunk size to {chsz}", bin_name());
-                            state = State::SendingProgramReady;
-                            outgoing_msg = MessageContent::ProgramReady;
-                            chunk_size = chsz as usize;
-                        }
-                    }
-                    _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
-                }
-            }
-            MessageContent::ReadyForChunk { chunk_no } => {
-                // expected in SendingProgramReady and SendingProgramChunk
-                match state {
-                    State::SendingProgramReady | State::SendingProgramChunk => {
-                        let offset = (chunk_no as usize) * chunk_size;
-                        if offset >= program_data.len() {
-                            log::error!("[{}]: Invalid chunk_no: {chunk_no} when program only has {} chunks", bin_name(), (program_data.len() + chunk_size - 1) / chunk_size);
-                        } else {
-                            let end = (offset + (chunk_size)).max(program_data.len());
-                            let chunk_data = &program_data[offset..end];
-                            log::info!("[{}]: Sending chunk #{chunk_no}", bin_name());
-                            if matches!(state, State::SendingProgramReady) {
-                                log::debug!("transition: SendingProgramReady -> SendingProgramChunk");
-                                state = State::SendingProgramChunk;
-                            }
-                            outgoing_msg = MessageContent::ProgramChunk {
-                                chunk_no,
-                                data: chunk_data,
-                            };
-                        }
-                    }
-                    _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
-                }
-            }
-            MessageContent::ProgramReceived => {
-                // expected in SendingProgramChunk
-                match state {
-                    State::SendingProgramChunk => {
-                        log::debug!("transition: SendingProgramChunk -> DONE");
-                        log::info!("[{}]: Finished uploading.", bin_name());
-                        break
-                    }
-                    _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
-                }
-            }
+                MessageContent::BaudRateAck { possible } => {
+                    // expected in SettingBaudRate
+                    match state {
+                        State::SettingBaudRate => {
+                            if possible {
+                                // received ack
+                                log::debug!("[{}]: Attempting to set baud rate to {}", bin_name(), args.baud);
+                                send_message(tty, &MessageContent::BaudRateReady).inspect_err(|e| {
+                                    log::error!("[{}]: Failed to send message: {}", bin_name(), e);
+                                })?;
 
-            // Host->Device only messages
-            MessageContent::SetProtocolVersion { .. }
+                                tty.set_baud_rate(args.baud)?;
+
+                                let brr_send_time = std::time::Instant::now();
+
+                                let mut succeeded = false;
+
+                                'brr: while brr_send_time.elapsed() < SET_BAUD_RATE_TIMEOUT {
+                                    let mut v = VecDeque::new();
+                                    if !try_recv_messages(tty, &mut v)? { continue 'brr }
+                                    while let Some(msg_buf) = v.pop_front() {
+                                        if let Ok(msg) = postcard::from_bytes::<MessageContent>(&msg_buf.content)
+                                            .inspect_err(|e| log::error!("try_recv_message: Deserialization failed: {e} (continuing : corruption possible due to baud rate negotiation)"))
+                                        {
+                                            if let MessageContent::RequestProgramInfoRPC { .. } = msg {
+                                                succeeded = true;
+                                                break 'brr
+                                            } else {
+                                                continue
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if succeeded {
+                                    log::info!("[{}]: Set baud rate to {}", bin_name(), args.baud);
+                                    log::debug!("transition: SettingBaudRate -> SendingProgramInfo");
+                                    state = State::SendingProgramInfo;
+                                    outgoing_msg = MessageContent::ProgramInfo {
+                                        load_at_address: args.address,
+                                        program_size: program_data.len() as u32,
+                                        program_crc32,
+                                    };
+                                } else {
+                                    log::error!("[{}]: Encountered timeout waiting for baud rate change. Retrying.", bin_name());
+
+                                    tty.set_baud_rate(115200)?;
+
+                                    // no state change, no outgoing message change.
+                                }
+                            } else {
+                                log::error!("[{}]: Failed to set baud rate: device error. Aborting.", bin_name());
+                                exit(1);
+                            }
+                        }
+                        _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
+                    }
+                }
+                MessageContent::RequestProgramRPC { crc_retransmission, chunk_size: chsz } => {
+                    // expected in SendingProgramInfo
+                    match state {
+                        State::SendingProgramInfo => {
+                            if crc_retransmission != program_crc32 {
+                                log::error!("[{}]: Received corrupted retransmitted CRC in RequestProgramRPC: expected {program_crc32} received {crc_retransmission}", bin_name());
+                            } else {
+                                log::debug!("transition: SendingProgramInfo -> SendingProgramReady");
+                                log::info!("[{}]: Setting chunk size to {chsz}", bin_name());
+                                state = State::SendingProgramReady;
+                                outgoing_msg = MessageContent::ProgramReady;
+                                chunk_size = chsz as usize;
+                            }
+                        }
+                        _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
+                    }
+                }
+                MessageContent::ReadyForChunk { chunk_no } => {
+                    // expected in SendingProgramReady and SendingProgramChunk
+                    match state {
+                        State::SendingProgramReady | State::SendingProgramChunk => {
+                            let offset = (chunk_no as usize) * chunk_size;
+                            if offset >= program_data.len() {
+                                log::error!("[{}]: Invalid chunk_no: {chunk_no} when program only has {} chunks", bin_name(), (program_data.len() + chunk_size - 1) / chunk_size);
+                            } else {
+                                let end = (offset + (chunk_size)).max(program_data.len());
+                                let chunk_data = &program_data[offset..end];
+                                log::info!("[{}]: Sending chunk #{chunk_no}", bin_name());
+                                if matches!(state, State::SendingProgramReady) {
+                                    log::debug!("transition: SendingProgramReady -> SendingProgramChunk");
+                                    state = State::SendingProgramChunk;
+                                }
+                                outgoing_msg = MessageContent::ProgramChunk {
+                                    chunk_no,
+                                    data: chunk_data,
+                                };
+                            }
+                        }
+                        _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
+                    }
+                }
+                MessageContent::ProgramReceived => {
+                    // expected in SendingProgramChunk
+                    match state {
+                        State::SendingProgramChunk => {
+                            log::debug!("transition: SendingProgramChunk -> DONE");
+                            log::info!("[{}]: Finished uploading.", bin_name());
+                            break 'outer
+                        }
+                        _ => { log::error!("[{}]: Host received unexpected {msg:?} while waiting for {}", bin_name(), state.waiting_for()); }
+                    }
+                }
+
+                // Host->Device only messages
+                MessageContent::SetProtocolVersion { .. }
                 | MessageContent::SetBaudRateRPC { .. }
                 | MessageContent::ProgramInfo { .. }
                 | MessageContent::ProgramReady { .. }
                 | MessageContent::ProgramChunk { .. }
                 | MessageContent::BaudRateReady
-            => {
-                log::error!("[{}]: Host received unexpected {msg:?}: message type is Host->Device only", bin_name())
+                => {
+                    log::error!("[{}]: Host received unexpected {msg:?}: message type is Host->Device only", bin_name())
+                }
             }
         }
     }
@@ -239,22 +263,23 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
     Ok(())
 }
 
-fn try_recv_message<'a>(
-    tty: &'_ mut TTYPort, buf: &'a mut Vec<u8>
+fn try_recv_messages<'a>(
+    tty: &'_ mut TTYPort, buf: &'a mut VecDeque<MessageRaw>
 ) -> eyre::Result<bool> {
     let raw = match recv_message_raw(tty) {
-        Ok(Some(raw)) => raw,
-        Ok(None) => {
+        Ok(v) => if v.is_empty() {
             log::trace!("failed to read from tty: ignoring.");
             return Ok(false)
+        } else {
+            v
         }
         Err(e) => {
             log::error!("[{}]: failed to read from tty: {e}", bin_name());
             Err(e)?
         }
     };
-    *buf = raw.content;
-    Ok(true)
+    buf.extend(raw);
+    Ok(!buf.is_empty())
 }
 
 
@@ -274,19 +299,19 @@ pub struct MessageRaw {
     // pub content_crc32: u32,
 }
 
-// Ok(None) means timeout
-pub fn recv_message_raw(tty: &mut TTYPort) -> eyre::Result<Option<MessageRaw>> {
+// Ok(vec.is_empty) means timeout
+pub fn recv_message_raw(tty: &mut TTYPort) -> eyre::Result<Vec<MessageRaw>> {
     // wait on MESSAGE_PRECURSOR
     let mut mp_state = 0;
     let start = std::time::Instant::now();
     loop {
-        if start.elapsed() > READ_TIMEOUT {
-            return Ok(None)
+        if start.elapsed() > RECEIVE_TIMEOUT {
+            return Ok(vec![])
         }
         let byte = match tty.read8() {
             Ok(b) => b,
             Err(e) if e.kind() == ErrorKind::TimedOut => {
-                return Ok(None)
+                return Ok(vec![])
             }
             Err(e) if e.kind() == ErrorKind::BrokenPipe => {
                 log::error!("[{}]: Device disconnected. Aborting.", bin_name());
@@ -317,30 +342,78 @@ pub fn recv_message_raw(tty: &mut TTYPort) -> eyre::Result<Option<MessageRaw>> {
         buf.extend_from_slice(&raw_buf[..ct])
     }
 
-    let buf_unstuffed = cobs::decode_vec(&buf)
-        .map_err(|_| eyre::eyre!("Failed to COBS-decode buffer: {}", hexify(&buf)))?;
+    // log::trace!("--[ {} ]", hexify(&buf));
+    let mut line_decoder = LineDecoder::new();
 
-    if buf_unstuffed.len() < 4 {
-        eyre::bail!("Message too small: {}", hexify(&buf_unstuffed));
+    let mut i = 0;
+
+    let mut packets = Vec::new();
+
+    loop {
+        if i == buf.len() {
+            break
+        }
+        if (buf.len() - i) < 4 {
+            log::error!("[{}]: remaining buffer is not a packet (too short): {}.", bin_name(), hexify(&buf[i..]));
+            break
+        }
+        if i != 0 {
+            if &buf[i..i + 4] == &[0x55, 0x77, 0xaa, 0xff] {
+                i += 4;
+            } else {
+                log::error!("[{}]: packet does not begin with MESSAGE_PRECURSOR: remaining buffer {}.", bin_name(), hexify(&buf[i..]));
+                log::error!("[{}]: decoder in disorder, dumping remaining buffer.", bin_name());
+                break
+            }
+        }
+        let mut buf_unstuffed = Vec::new();
+        while i < buf.len() {
+            let byte = buf[i];
+            i += 1;
+            match line_decoder.feed(byte) {
+                FeedState::PacketFinished => { break }
+                FeedState::Byte(b) => { buf_unstuffed.push(b) }
+                FeedState::Pass => { continue }
+            }
+        }
+        if buf[i - 1] != 0 {
+            log::error!("[{}]: COBS packet empty or incomplete: {}", bin_name(), hexify(&buf_unstuffed));
+            continue
+        }
+        // let buf_unstuffed = cobs::decode_vec(&buf)
+        //      .map_err(|_| eyre::eyre!("Failed to COBS-decode buffer: {}", hexify(&buf)))?;
+
+
+        // log::trace!("--< {}", hexify(&buf_unstuffed));
+        // log::trace!("--( {}",
+        //     buf_unstuffed
+        //         .iter()
+        //         .map(|&b| if b.is_ascii_graphic() { b.as_ascii().unwrap().to_char() } else { '.' })
+        //         .collect::<String>()
+        // );
+
+        if buf_unstuffed.len() < 4 {
+            eyre::bail!("Message too small: {}", hexify(&buf_unstuffed));
+        }
+
+        // last 4 bytes are CRC32
+        let crc_begin = buf_unstuffed.len() - 4;
+        let crc_slice = &buf_unstuffed[crc_begin..];
+        let crc_array = [crc_slice[0], crc_slice[1], crc_slice[2], crc_slice[3]];
+        let message_crc32 = u32::from_le_bytes(crc_array);
+
+        let content_slice = &buf_unstuffed[..crc_begin];
+        let content_crc32 = crc32fast::hash(content_slice);
+
+        if content_crc32 != message_crc32 {
+            log::error!("[{}]: CRC mismatch: expected {} got {}", bin_name(), message_crc32, content_crc32);
+            continue
+        }
+
+        packets.push(MessageRaw { content: content_slice.to_vec() });
     }
 
-    // last 4 bytes are CRC32
-    let crc_begin = buf_unstuffed.len()-4;
-    let crc_slice = &buf_unstuffed[crc_begin..];
-    let crc_array = [crc_slice[0], crc_slice[1], crc_slice[2], crc_slice[3]];
-    let message_crc32 = u32::from_le_bytes(crc_array);
-
-    let content_slice = &buf_unstuffed[..crc_begin];
-    let content_crc32 = crc32fast::hash(content_slice);
-
-    if content_crc32 != message_crc32 {
-        log::error!("[{}]: CRC mismatch: expected {} got {}", bin_name(), message_crc32, content_crc32);
-        return Ok(None)
-    }
-
-    Ok(Some(MessageRaw {
-        content: content_slice.to_vec(),
-    }))
+    Ok(packets)
 }
 
 static HEX_TABLE : [&'static str; 256] = [

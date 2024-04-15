@@ -1,10 +1,12 @@
 const SENTINEL : u8 = 0x00;
 
+#[derive(Debug, Clone)]
 pub struct LineDecoder {
     bytes_since_last_jump: usize,
     last_jump: usize,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum FeedState {
     PacketFinished,
     Byte(u8),
@@ -42,6 +44,7 @@ impl LineDecoder {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BufferedEncoder {
     internal: [u8; 256],
 }
@@ -57,7 +60,7 @@ impl BufferedEncoder {
     }
 }
 
-
+#[derive(Debug)]
 pub enum EncodeState<'a> {
     Buf(&'a [u8]),
     Pass,
@@ -95,9 +98,10 @@ impl<'a> PacketEncoder<'a> {
         }
     }
 
-    pub fn finish(self) -> &'a [u8] {
+    pub fn finish(mut self) -> &'a [u8] {
         self.buf[self.curs] = SENTINEL;
         self.buf[0] = self.curs as u8;
+        self.curs += 1;
         &self.buf[0..self.curs]
     }
 }

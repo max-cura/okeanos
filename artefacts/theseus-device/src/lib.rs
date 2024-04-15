@@ -2,17 +2,17 @@
 #![no_std]
 
 use core::arch::asm;
-use bcm2835_lpa::{Peripherals};
+use bcm2835_lpa::Peripherals;
 use theseus_common::INITIAL_BAUD_RATE;
 use crate::fmt::UartWrite;
 use core::fmt::Write as _;
 
 pub mod fmt;
 pub mod uart1;
-pub mod cobs;
 pub mod delay;
 mod download;
 mod legacy;
+mod theseus;
 
 fn data_synchronization_barrier() {
     unsafe {

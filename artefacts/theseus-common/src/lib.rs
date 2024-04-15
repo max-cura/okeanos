@@ -3,6 +3,7 @@
 pub const INITIAL_BAUD_RATE: u32 = 115200;
 
 pub mod theseus;
+pub mod cobs;
 
 pub mod su_boot {
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]

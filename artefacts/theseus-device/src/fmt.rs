@@ -1,10 +1,11 @@
 use core::fmt::Write;
+use core::hash::Hasher;
 use bcm2835_lpa::UART1;
 use theseus_common::su_boot;
 use theseus_common::theseus::v1;
 use theseus_common::theseus::v1::MESSAGE_PRECURSOR;
 use crate::{IN_THESEUS, uart1};
-use crate::cobs::EncodeState;
+use theseus_common::cobs::EncodeState;
 
 pub struct UartWrite<'a> {
     inner: &'a UART1,
@@ -23,7 +24,7 @@ impl<'a> core::fmt::Write for UartWrite<'a> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         if unsafe { IN_THESEUS } {
             // PrintMessageRPC in 254-byte chunks
-            let mut enc = crate::cobs::BufferedEncoder::new();
+            let mut enc = theseus_common::cobs::BufferedEncoder::new();
             let mut begin = 0;
             loop {
                 let e = (begin + 254).min(s.len());
@@ -46,19 +47,22 @@ impl<'a> core::fmt::Write for UartWrite<'a> {
                 }, &mut encode_buf).unwrap();
 
                 let mut crc = crc32fast::Hasher::new();
+                crc.update(&data[..]);
+                let crc32: [u8; 4] = crc.finalize().to_le_bytes();
+
                 uart1::uart1_write32(self.inner, MESSAGE_PRECURSOR);
                 let mut p = enc.packet();
-                for &byte in &data[..] {
+                for &byte in data[..].iter().chain(crc32.iter()) {
                     match p.add_byte(byte) {
                         EncodeState::Buf(buf) => {
                             uart1::uart1_write_bytes(self.inner, buf);
-                            (&mut crc).update(buf);
                         }
                         EncodeState::Pass => {}
                     }
                 }
+
                 uart1::uart1_write_bytes(self.inner, p.finish());
-                uart1::uart1_write32(self.inner, crc.finalize());
+                // uart1::uart1_write32(self.inner, crc.finalize());
 
                 begin = e;
                 if e >= s.len() {
