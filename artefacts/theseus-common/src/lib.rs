@@ -19,7 +19,6 @@ pub mod su_boot {
         BootSuccess = 0x9999AAAA, // pi sends on success
         BootError = 0xBBBBCCCC,       // pi sends on failure.
 
-        // CURRENTLY NOT IMPLEMENTED
         PrintString = 0xDDDDEEEE,       // pi sends to print a string.
     }
 }

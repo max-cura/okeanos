@@ -1,6 +1,6 @@
 #
-# FILE infra/artefacts/thalassa/common.mk
-# DESC common variables for infra/artefacts/thalassa
+# FILE infra/artefacts/theseus-device/common.mk
+# DESC common variables for infra/artefacts/theseus-device
 #
 
 # project-level common files
@@ -9,7 +9,7 @@ include infra/common.mk
 include infra/targets.mk
 
 # artefact-specific configuration
-ARTEFACT=thalassa
+ARTEFACT=theseus-device
 ARTEFACT_BUILD_DIR=$(INF_BUILD_DIR)/$(ARTEFACT)
 ARTEFACT_INFRA_DIR=$(INF_BASE_DIR)/artefacts/$(ARTEFACT)
 CRATE_DIR=$(INF_SRC_DIR)/$(ARTEFACT)

@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::time::Duration;
 use color_eyre::{eyre, Section as _};
 use serialport::{DataBits, FlowControl, Parity, StopBits, TTYPort};
@@ -71,8 +72,12 @@ fn state_initial(
     log::debug!("Waiting for GET_PROG_INFO");
     loop {
         let byte = tty.read8();
-        if byte.is_err() {
-            log::debug!("failed to read from tty: {}", byte.unwrap_err());
+        if let Err(e) = byte {
+            if e.kind() == ErrorKind::TimedOut {
+                log::trace!("failed to read from tty: {}", e);
+            } else {
+                log::debug!("failed to read from tty: {}", e);
+            }
             continue;
         }
         let byte = byte.unwrap();
@@ -83,6 +88,18 @@ fn state_initial(
             (1, 0x22) => status += 1,
             (2, 0x11) => status += 1,
             (3, 0x11) => status += 1,
+            (0, 0xee) => status = 5,
+            (5, 0xee) => status = 6,
+            (6, 0xdd) => status = 7,
+            (7, 0xdd) => {
+                status = 0;
+                let len = tty.read32_le().unwrap_or(0);
+                if len > 0 {
+                    let mut v = vec![0; len as usize];
+                    let _ = tty.read_exact(&mut v);
+                    log::info!("< {}", String::from_utf8_lossy(&v));
+                }
+            }
             (x, _) if x > 0 => status = 0,
             _ => {}
         }
@@ -111,7 +128,7 @@ fn state_initial(
                 }
                 VersionValidation::Invalid => {
                     log::warn!("Device does not support THESEUS protocol, falling back to SU-BOOT");
-                    log::warn!("Note that legacy SU-BOOT mode is INCOMPLETE and does not implement the commands: PRINT_STRING BOOT_START!");
+                    log::warn!("Legacy SU-BOOT mode is INCOMPLETE and does not implement the commands: BOOT_START and has incomplete support for the commands: PRINT_STRING!");
                     InitialBranch::Legacy
                 }
             }

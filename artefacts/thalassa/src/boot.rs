@@ -18,6 +18,11 @@ pub mod labs;
 pub static mut MY_STATIC: usize = 5;
 
 pub fn boot_init() {
+    // TODO: make this panic-proof
+    unsafe {
+        redzone::bss_init();
+    }
+
     panic::set_panic_behaviour(PanicBehaviour::BootHalt);
 
     unsafe {
@@ -27,16 +32,18 @@ pub fn boot_init() {
     // No `take` yet b/c we don't have critical_section support yet.
     // We are also the sole thread of execution and IRQs are disabled at this point.
 
-    let peripherals = Peripherals::take();
-    if peripherals.is_none() {
-        data_synchronization_barrier();
-        let peripherals = unsafe { Peripherals::steal() };
-        peripherals.GPIO.gpfsel2().modify(|_, w| w.fsel27().output());
-        unsafe { peripherals.GPIO.gpset0().write_with_zero(|w| w.set27().set_bit()) };
-        data_synchronization_barrier();
-    }
 
-    let peripherals = peripherals.unwrap();
+    // let peripherals = Peripherals::take();
+    let peripherals = unsafe { Peripherals::steal() };
+    // if peripherals.is_none() {
+    //     data_synchronization_barrier();
+    //     let peripherals = unsafe { Peripherals::steal() };
+    //     peripherals.GPIO.gpfsel2().modify(|_, w| w.fsel27().output());
+    //     unsafe { peripherals.GPIO.gpset0().write_with_zero(|w| w.set27().set_bit()) };
+    //     data_synchronization_barrier();
+    // }
+
+    // let peripherals = peripherals.unwrap();
 
     // let peripherals = unsafe { Peripherals::steal() };
 

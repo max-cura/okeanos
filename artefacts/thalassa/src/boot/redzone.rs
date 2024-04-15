@@ -41,3 +41,17 @@ pub unsafe fn redzone_init() {
     zero_redzone();
     check_redzone_zeroed();
 }
+
+extern "C" {
+    static mut __tlss_bss_start__ : u8;
+    static __tlss_bss_end__ : u8;
+}
+
+pub unsafe fn bss_init() {
+    let start = core::ptr::addr_of_mut!(__tlss_bss_start__);
+    let end = core::ptr::addr_of!(__tlss_bss_end__);
+    let len = end.offset_from(start) as usize;
+    let bytes = core::slice::from_raw_parts_mut(start, len);
+    bytes.iter_mut().for_each(|b| *b = 0x00);
+}
+

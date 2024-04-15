@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::process::exit;
 use color_eyre::{eyre, Section};
 use serialport::{ClearBuffer, SerialPort, TTYPort};
@@ -46,6 +46,7 @@ pub(crate) fn begin(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
     }
 
     log::debug!("clearing buffers");
+    log::warn!("WARNING: any PRINT_STRINGs previously sent will be discarded");
     tty.clear(ClearBuffer::All)?;
 
     let prog_data = std::fs::read(args.bin_file.as_path())?;
@@ -72,11 +73,18 @@ pub(crate) fn begin(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
     let mut switch = 0;
     loop {
         let byte = tty.read8();
-        if byte.is_err() {
-            log::debug!("failed to read from tty: {}", byte.unwrap_err());
+        if let Err(e) = byte {
+            if e.kind() == ErrorKind::TimedOut {
+                log::trace!("failed to read from tty: {}", e);
+            } else {
+                log::debug!("failed to read from tty: {}", e);
+            }
             continue;
         }
         let byte = byte.unwrap();
+        if args.trace == TraceLevel::All {
+            log::trace!("< {byte}");
+        }
         // BOOT_ERROR (bbbbcccc) or GET_CODE (55556666)
         match (status, switch, byte) {
             (0, 0, 0xcc) => { switch = 1; status += 1 }
@@ -87,6 +95,19 @@ pub(crate) fn begin(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
             (1, 2, 0x66) => { status += 1 }
             (2, 2, 0x55) => { status += 1 }
             (3, 2, 0x55) => { status += 1 }
+            (0, 0, 0xee) => { switch = 3; status += 1 }
+            (1, 3, 0xee) => { status += 1 }
+            (2, 3, 0xdd) => { status += 1 }
+            (3, 3, 0xdd) => {
+                status = 0;
+                switch = 0;
+                let len = tty.read32_le().unwrap_or(0);
+                if len > 0 {
+                    let mut v = vec![0; len as usize];
+                    let _ = tty.read_exact(&mut v);
+                    log::info!("< {}", String::from_utf8_lossy(&v));
+                }
+            }
             (0, 0, _) => {},
             _ => { switch = 0; status = 0 }
         }
@@ -128,11 +149,16 @@ pub(crate) fn begin(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
     let mut switch = 0;
     loop {
         let byte = tty.read8();
-        if byte.is_err() {
-            log::debug!("failed to read from tty: {}", byte.unwrap_err());
+        if let Err(e) = byte {
+            if e.kind() == ErrorKind::TimedOut {
+                log::trace!("failed to read from tty: {}", e);
+            } else {
+                log::debug!("failed to read from tty: {}", e);
+            }
             continue;
         }
         let byte = byte.unwrap();
+        // log::trace!("< {byte}");
         // BOOT_ERROR (bbbbcccc) or BOOT_SUCCESS (9999aaaa)
         match (status, switch, byte) {
             (0, 0, 0xcc) => { switch = 1; status += 1 }
@@ -143,6 +169,19 @@ pub(crate) fn begin(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
             (1, 2, 0xaa) => { status += 1 }
             (2, 2, 0x99) => { status += 1 }
             (3, 2, 0x99) => { status += 1 }
+            (0, 0, 0xee) => { switch = 3; status += 1 }
+            (1, 3, 0xee) => { status += 1 }
+            (2, 3, 0xdd) => { status += 1 }
+            (3, 3, 0xdd) => {
+                status = 0;
+                switch = 0;
+                let len = tty.read32_le().unwrap_or(0);
+                if len > 0 {
+                    let mut v = vec![0; len as usize];
+                    let _ = tty.read_exact(&mut v);
+                    log::info!("< {}", String::from_utf8_lossy(&v));
+                }
+            }
             (0, 0, _) => {},
             _ => { switch = 0; status = 0 }
         }

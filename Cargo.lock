@@ -774,8 +774,8 @@ name = "theseus-device"
 version = "0.1.0"
 dependencies = [
  "bcm2835-lpa",
- "embedded-hal",
- "embedded-io 0.6.1",
+ "crc32fast",
+ "postcard",
  "theseus-common",
 ]
 
