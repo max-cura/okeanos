@@ -1,7 +1,7 @@
 use core::time::Duration;
 use bcm2835_lpa::{SYSTMR, UART1};
 use theseus_common::su_boot;
-use crate::delay::{delay_micros, delay_millis, st_read, STInstant};
+use crate::delay::{delay_micros, STInstant};
 use crate::fmt::UartWrite;
 use crate::{boot_umsg, IN_THESEUS, uart1};
 use core::fmt::Write;

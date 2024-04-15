@@ -2,12 +2,10 @@
 #![no_std]
 
 use core::arch::asm;
-use bcm2835_lpa::{Peripherals, UART1};
+use bcm2835_lpa::{Peripherals};
 use theseus_common::INITIAL_BAUD_RATE;
 use crate::fmt::UartWrite;
 use core::fmt::Write as _;
-use crate::delay::delay_micros;
-use crate::uart1::uart1_write32;
 
 pub mod fmt;
 pub mod uart1;
@@ -34,11 +32,11 @@ pub(crate) static mut IN_THESEUS : bool = false;
 // problem: wire format is MessageContent -> postcard -> COBS
 
 extern "C" {
-    static __theseus_code_start__: ();
-    static __theseus_prog_end__: ();
+    static __theseus_code_start__: u8;
+    static __theseus_prog_end__: u8;
 
-    static _relocation_stub: ();
-    static _relocation_stub_end: ();
+    static _relocation_stub: u8;
+    static _relocation_stub_end: u8;
 }
 extern "C" {
     static mut __theseus_bss_start__ : u8;
@@ -65,7 +63,6 @@ pub extern "C" fn __theseus_init() {
     boot_umsg!(ser, "[theseus-device]: loaded UART1, entering legacy SU-BOOT compat mode");
 
     // unsafe for extern static
-    let a = 0xcafebabeu32;
     let b = unsafe { core::ptr::addr_of!(__theseus_code_start__) };
     let c = unsafe { core::ptr::addr_of!(__theseus_prog_end__) };
     boot_umsg!(ser, "[theseus-device]: currently loaded at [{b:#?}..{c:#?}]");
@@ -76,6 +73,7 @@ pub extern "C" fn __theseus_init() {
         boot_umsg!(ser, "[theseus-device]: fell out of download::download. Rebooting.");
 
         boot_umsg!(ser, "[theseus-device]: sike no reboot");
+        // TODO reboot
     }
 }
 
@@ -88,6 +86,7 @@ pub extern "C" fn __theseus_reboot() -> ! {
 
         boot_umsg!(ser, "[theseus-device]: reboot functionality not yet implemented, halting.");
     }
+    // TODO reboot
     loop {}
 }
 

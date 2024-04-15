@@ -1,5 +1,5 @@
 use core::arch::asm;
-use bcm2835_lpa::{Peripherals, UART1};
+use bcm2835_lpa::Peripherals;
 use crate::boot::fmt::Uart1;
 use crate::boot::uart1;
 use crate::uprintln;

@@ -1,9 +1,7 @@
 use bcm2835_lpa::Peripherals;
 use crate::boot::fmt::Uart1;
 use core::fmt::Write;
-use core::ptr;
 use crate::{panic, uprintln};
-use crate::arch::barrier::data_synchronization_barrier;
 use crate::panic::PanicBehaviour;
 
 pub mod uart1;

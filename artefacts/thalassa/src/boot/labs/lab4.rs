@@ -1,6 +1,5 @@
-use core::arch::asm;
-use bcm2835_lpa::{CM_PWM, GPIO, PWM0, SPI0, SYSTMR};
-use crate::arch::barrier::{compiler_fence, data_synchronization_barrier};
+use bcm2835_lpa::{CM_PWM, GPIO, PWM0, SYSTMR};
+use crate::arch::barrier::{data_synchronization_barrier};
 use crate::boot::fmt::Uart1;
 use crate::uprintln;
 use core::fmt::Write;
@@ -278,7 +277,7 @@ pub fn lab4(uart: &mut Uart1, st: &SYSTMR, pwm: &PWM0, cm_pwm: &CM_PWM, gpio: &G
     uprintln!(uart, "PWM.CTL={:?}", pwm.ctl().read());
     uprintln!(uart, "PWM.STA={:?}", pwm.sta().read());
 
-    let mut buf : [u8; 90] = [0xff; 90];
+    let buf : [u8; 90] = [0xff; 90];
     for &byte in &buf {
         for j in 0..8 {
             let is_high = (byte & (1 << j)) != 0;

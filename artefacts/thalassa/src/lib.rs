@@ -11,7 +11,7 @@
 pub mod arch;
 pub mod boot;
 mod panic;
-pub mod critical_section;
+//pub mod critical_section;
 
 #[no_mangle]
 pub extern "C" fn __tlss_kernel_init() -> ! {

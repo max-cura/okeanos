@@ -1,4 +1,3 @@
-use core::arch::asm;
 use bcm2835_lpa::{SYSTMR, UART1};
 use crate::fmt::UartWrite;
 use crate::{__theseus_prog_end__, _relocation_stub, _relocation_stub_end, boot_umsg, data_synchronization_barrier, uart1};
@@ -8,7 +7,7 @@ const GET_CODE : u32 = theseus_common::su_boot::Command::GetCode as u32;
 const BOOT_SUCCESS : u32 = theseus_common::su_boot::Command::BootSuccess as u32;
 const BOOT_ERROR : u32 = theseus_common::su_boot::Command::BootError as u32;
 
-pub(crate) fn perform_download(uw: &mut UartWrite, uart: &UART1, st: &SYSTMR) {
+pub(crate) fn perform_download(uw: &mut UartWrite, uart: &UART1, _st: &SYSTMR) {
     // okay, so we just received PUT_PROGRAM_INFO
     let addr = uart1::uart1_read32_blocking(uart);
     let len = uart1::uart1_read32_blocking(uart);
@@ -17,8 +16,8 @@ pub(crate) fn perform_download(uw: &mut UartWrite, uart: &UART1, st: &SYSTMR) {
     boot_umsg!(uw, "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode.");
     boot_umsg!(uw, "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}");
 
+    // TODO: where exactly does the stack start again???
     // stack starts at 0x8000 and goes downwards, so assume [0..&__theseus_prog_end__] is all theseus-device
-    let self_start = 0;
     let self_end = unsafe { core::ptr::addr_of!(__theseus_prog_end__) } as usize as u32;
 
     let prog_begin = addr;
@@ -59,8 +58,6 @@ pub(crate) fn perform_download(uw: &mut UartWrite, uart: &UART1, st: &SYSTMR) {
 
     let mut state = S::CLR;
 
-    let ovr = uart.lsr().read().rx_overrun().bit_is_set();
-
     // wait for PUT_CODE
     loop {
         let Some(byte) = uart1::uart1_read8_nb(uart) else {
@@ -82,11 +79,9 @@ pub(crate) fn perform_download(uw: &mut UartWrite, uart: &UART1, st: &SYSTMR) {
     #[no_mangle]
     #[inline(never)]
     fn write_bytes_from_uart(
-        uw: &mut UartWrite,
         uart: &UART1,
         n_bytes: usize,
         to_addr: *mut u8,
-        ctx: i32,
     ) {
         data_synchronization_barrier();
         let mut i = 0;
@@ -97,7 +92,7 @@ pub(crate) fn perform_download(uw: &mut UartWrite, uart: &UART1, st: &SYSTMR) {
             i += 1;
         }
         data_synchronization_barrier();
-    };
+    }
 
 
     let verify_crc32 = if relocate {
@@ -105,22 +100,16 @@ pub(crate) fn perform_download(uw: &mut UartWrite, uart: &UART1, st: &SYSTMR) {
         unsafe {
             let relocate_prog_to_ptr = relocate_prog_to as usize as *mut u8;
             write_bytes_from_uart(
-                uw,
                 uart,
                 relocate_prog_len as usize,
                 relocate_prog_to_ptr,
-                1
             );
             let stationary_len = (len - relocate_prog_len) as usize;
-            let stationary_ptr = unsafe {
-                relocate_prog_to_ptr.offset(relocate_prog_len as isize)
-            };
+            let stationary_ptr = relocate_prog_to_ptr.offset(relocate_prog_len as isize);
             write_bytes_from_uart(
-                uw,
                 uart,
                 stationary_len,
                 stationary_ptr,
-                2
             );
             crc.update(core::slice::from_raw_parts(relocate_prog_to_ptr, relocate_prog_len as usize));
             crc.update(core::slice::from_raw_parts(stationary_ptr, stationary_len));
@@ -129,11 +118,9 @@ pub(crate) fn perform_download(uw: &mut UartWrite, uart: &UART1, st: &SYSTMR) {
     } else {
         unsafe {
             write_bytes_from_uart(
-                uw,
                 uart,
                 len as usize,
                 addr as usize as *mut u8,
-                3
             );
             crc32fast::hash(core::slice::from_raw_parts(addr as usize as *mut u8, len as usize))
         }
@@ -178,8 +165,8 @@ unsafe fn relocate_stub(params: RelocationParams) -> ! {
     let RelocationParams {
         uw, uart, stub_dst, prog_dst, prog_src, prog_len, entry
     } = params;
-    let stub_begin = core::ptr::addr_of!(_relocation_stub) as *mut u8;
-    let stub_end = core::ptr::addr_of!(_relocation_stub_end) as *mut u8;
+    let stub_begin = core::ptr::addr_of!(_relocation_stub);
+    let stub_end = core::ptr::addr_of!(_relocation_stub_end);
 
     let stub_len = stub_end.offset_from(stub_begin) as usize;
 
