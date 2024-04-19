@@ -1,11 +1,7 @@
-use core::fmt::Write;
-use core::hash::Hasher;
 use bcm2835_lpa::UART1;
 use theseus_common::su_boot;
 use theseus_common::theseus::v1;
-use theseus_common::theseus::v1::MESSAGE_PRECURSOR;
-use crate::{IN_THESEUS, uart1};
-use theseus_common::cobs::EncodeState;
+use crate::{IN_THESEUS, theseus, uart1};
 
 pub struct UartWrite<'a> {
     inner: &'a UART1,
@@ -24,7 +20,7 @@ impl<'a> core::fmt::Write for UartWrite<'a> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         if unsafe { IN_THESEUS } {
             // PrintMessageRPC in 254-byte chunks
-            let mut enc = theseus_common::cobs::BufferedEncoder::new();
+            // let mut enc = theseus_common::cobs::BufferedEncoder::new();
             let mut begin = 0;
             loop {
                 let e = (begin + 254).min(s.len());
@@ -43,26 +39,28 @@ impl<'a> core::fmt::Write for UartWrite<'a> {
                 // totally overkill but eh
                 let mut encode_buf: [u8; 256+128] = [0; 256+128];
                 let data = postcard::to_slice(&v1::MessageContent::PrintMessageRPC {
-                    message: window.as_bytes(),
+                    message: window,
                 }, &mut encode_buf).unwrap();
 
-                let mut crc = crc32fast::Hasher::new();
-                crc.update(&data[..]);
-                let crc32: [u8; 4] = crc.finalize().to_le_bytes();
-
-                uart1::uart1_write32(self.inner, MESSAGE_PRECURSOR);
-                let mut p = enc.packet();
-                for &byte in data[..].iter().chain(crc32.iter()) {
-                    match p.add_byte(byte) {
-                        EncodeState::Buf(buf) => {
-                            uart1::uart1_write_bytes(self.inner, buf);
-                        }
-                        EncodeState::Pass => {}
-                    }
-                }
-
-                uart1::uart1_write_bytes(self.inner, p.finish());
-                // uart1::uart1_write32(self.inner, crc.finalize());
+                // let crc32 = crc32fast::hash(&data[..]);
+                // // let mut crc = crc32fast::Hasher::new();
+                // // crc.update(&data[..]);
+                // // let crc32: [u8; 4] = crc.finalize().to_le_bytes();
+                //
+                // uart1::uart1_write32(self.inner, MESSAGE_PRECURSOR);
+                // let mut p = enc.packet();
+                // for &byte in data[..].iter().chain(crc32.to_le_bytes().iter()) {
+                //     match p.add_byte(byte) {
+                //         EncodeState::Buf(buf) => {
+                //             uart1::uart1_write_bytes(self.inner, buf);
+                //         }
+                //         EncodeState::Pass => {}
+                //     }
+                // }
+                //
+                // uart1::uart1_write_bytes(self.inner, p.finish());
+                // // uart1::uart1_write32(self.inner, crc.finalize());
+                theseus::uart1_send_theseus_packet(self.inner, &data[..]);
 
                 begin = e;
                 if e >= s.len() {
@@ -95,13 +93,24 @@ impl<const N: usize> TinyBuf<N> {
     }
 }
 
-impl<const N: usize> Default for TinyBuf<N> {
-    fn default() -> Self {
+impl<const N: usize> TinyBuf<N> {
+    const fn new() -> Self {
         Self { inner: [0; N], curs: 0, truncated: false }
+    }
+    pub fn clear(&mut self) {
+        self.inner.iter_mut().for_each(|x| *x = 0);
+        self.curs = 0;
+        self.truncated = false;
     }
 }
 
-impl<const N: usize> Write for TinyBuf<N> {
+impl<const N: usize> Default for TinyBuf<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> core::fmt::Write for TinyBuf<N> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         const TRUNCATION_NOTICE : &str = "<truncated>";
 
@@ -129,11 +138,13 @@ impl<const N: usize> Write for TinyBuf<N> {
     }
 }
 
+pub static mut BOOT_UMSG_BUF : TinyBuf<0x4000> = TinyBuf::new();
+
 #[macro_export]
 macro_rules! boot_umsg {
     ($out:tt, $($arg:tt)*) => {
         {
-            let mut buf : $crate::fmt::TinyBuf<1000> = Default::default();
+            // let mut buf : $crate::fmt::TinyBuf<1000> = Default::default();
             // TODO: fix this - currently will truncate if buffer is too smaller
             //       I think the fix will be a little complicated so I'm putting it off for now but
             //       the basic idea would be create a local fmt::Write object that pipes to UART1
@@ -141,8 +152,11 @@ macro_rules! boot_umsg {
             //       the string as a whole and not the pieces of a string, which was kind of a head
             //       empty moment for me
             {
-                let _ = ::core::write!(&mut buf, $($arg)*);
-                let _ = $out.write_str(buf.as_str());
+                unsafe {
+                    $crate::fmt::BOOT_UMSG_BUF.clear();
+                }
+                let _ = ::core::write!(unsafe { &mut $crate::fmt::BOOT_UMSG_BUF }, $($arg)*);
+                let _ = $out.write_str(unsafe { &$crate::fmt::BOOT_UMSG_BUF }.as_str());
             }
             // let _ = ::core::write!($($arg)*);
         }

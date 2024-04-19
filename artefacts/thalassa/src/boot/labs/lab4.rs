@@ -277,35 +277,143 @@ pub fn lab4(uart: &mut Uart1, st: &SYSTMR, pwm: &PWM0, cm_pwm: &CM_PWM, gpio: &G
     uprintln!(uart, "PWM.CTL={:?}", pwm.ctl().read());
     uprintln!(uart, "PWM.STA={:?}", pwm.sta().read());
 
-    let buf : [u8; 90] = [0xff; 90];
-    for &byte in &buf {
-        for j in 0..8 {
-            let is_high = (byte & (1 << j)) != 0;
-            let m = if is_high { t1h } else { t0h };
-            while pwm.sta().read().full1().bit_is_set() {}
-            pwm.fif1().write(|w| {
-                unsafe { w.bits(m) }
+    let mut buf : [u8; 90] = [0xff; 90];
+    let mut i = 0;
+    loop {
+        for j in 0..30 {
+            // let rgb = hsv_to_rgb((i % 360) as f32, 1., 1.);
+            // uprintln!(uart, "RGB={} {} {}", rgb.0, rgb.1, rgb.2);
+            // let rgb = (
+            //     (i % 255) as u8,
+            //     15,
+            //     127
+            //     );
+            // buf[3*j..3*(j+1)].copy_from_slice(&[rgb.1, rgb.0, rgb.2]);
+            // GRB order
+            buf[3*j..3*(j+1)].copy_from_slice(if j == (i % 30) {
+                &[0,255,0]
+            } else if j == (i+1) % 30 {
+                &[255,0,0]
+            } else if j == (i+2) % 30 {
+                &[0,0,255]
+            } else {
+                &[0,0,0]
             });
         }
+        // {
+        // }
+        //
+        i += 1;
+
+        data_synchronization_barrier();
+        for &byte in &buf {
+            for j in 0..8 {
+                let is_high = (byte & (1 << j)) != 0;
+                let m = if is_high { t1h } else { t0h };
+                while pwm.sta().read().full1().bit_is_set() {}
+                pwm.fif1().write(|w| {
+                    unsafe { w.bits(m) }
+                });
+            }
+        }
+        data_synchronization_barrier();
+
+
+        delay_micros(st, 70);
+
+        pwm.ctl().write(|w| {
+            w.pwen1().clear_bit()
+        });
+
+        delay_micros(st, 100000);
+
+        pwm.ctl().write(|w| {
+            w
+                // MSEN=1 USEF=1 POLA=0 SBIT=0 SPTL=0 MODE=PWM PWEN=1 CLRF=1
+                .msen1().set_bit()
+                .clrf1().set_bit()
+                .usef1().set_bit()
+                .pola1().clear_bit()
+                .sbit1().clear_bit()
+                .rptl1().clear_bit()
+                // .sbit1().set_bit()
+                // .rptl1().set_bit()
+                .mode1().pwm()
+                .pwen1().set_bit()
+                .pwen2().clear_bit()
+        });
     }
 
-    uprintln!(uart, "holding low for 70us");
-
-    uprintln!(uart, "PWM.RNG1={:?}", pwm.rng1().read());
-    uprintln!(uart, "PWM.CTL={:?}", pwm.ctl().read());
-    uprintln!(uart, "PWM.STA={:?}", pwm.sta().read());
-
-    delay_micros(st, 70);
-
-    uprintln!(uart, "done");
-
-    uprintln!(uart, "PWM.RNG1={:?}", pwm.rng1().read());
-    uprintln!(uart, "PWM.CTL={:?}", pwm.ctl().read());
-    uprintln!(uart, "PWM.STA={:?}", pwm.sta().read());
-
-    pwm.ctl().write(|w| {
-        w.pwen1().clear_bit()
-    });
-
-    data_synchronization_barrier();
+    //
+    // uprintln!(uart, "holding low for 70us");
+    //
+    // uprintln!(uart, "PWM.RNG1={:?}", pwm.rng1().read());
+    // uprintln!(uart, "PWM.CTL={:?}", pwm.ctl().read());
+    // uprintln!(uart, "PWM.STA={:?}", pwm.sta().read());
+    //
+    // delay_micros(st, 70);
+    //
+    // uprintln!(uart, "done");
+    //
+    // uprintln!(uart, "PWM.RNG1={:?}", pwm.rng1().read());
+    // uprintln!(uart, "PWM.CTL={:?}", pwm.ctl().read());
+    // uprintln!(uart, "PWM.STA={:?}", pwm.sta().read());
+    //
+    // pwm.ctl().write(|w| {
+    //     w.pwen1().clear_bit()
+    // });
+    //
 }
+
+// fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8,u8,u8) {
+//     let c = v * s;
+//     let h2 = h/60.;
+//     let h3 = (h2 as i8 % 2) - 1;
+//     let x = c * (1. - h3.abs() as f32);
+//
+//     fn hhh(c: f32, x: f32, h: f32) -> (f32, f32, f32) {
+//         if 0. <= h && h < 1. { (c,x,0.) }
+//         else if 1. <= h && h < 2. { (x,c,0.) }
+//         else if 2. <= h && h < 3. { (0.,c,x) }
+//         else if 3. <= h && h < 4. { (0.,x,c) }
+//         else if 4. <= h && h < 5. { (x,0.,c) }
+//         else if 5. <= h && h < 6. { (c,0.,x) }
+//         else { (0.,0.,0.) }
+//     }
+//
+//     let (r1,g1,b1) = hhh(c,x,h2);
+//     let m = v-c;
+//     let (r,g,b) = (r1+m,g1+m,b1+m);
+//     ((r * 255.) as u8, (g * 255.) as u8, (b * 255.) as u8)
+// }
+
+// fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
+//     let h = h/360.;
+//     let i = (h * 6.) as u8 as f32;
+//     let f = h * 6. - i;
+//     let p = v * (1. - s);
+//     let q = v * (1. - f * s);
+//     let t = v * (1. - (1. - f) * s);
+//
+//     let (r,g,b) = match (i as i32) % 6 {
+//         0 => (v,t,p),
+//         1 => (q,v,p),
+//         2 => (p,v,t),
+//         3 => (p,q,v),
+//         4 => (t,p,v),
+//         5 => (v,p,q),
+//         _ => (1.,1.,1.),
+//     // case 0: r = v, g = t, b = p; break;
+//     // case 1: r = q, g = v, b = p; break;
+//     // case 2: r = p, g = v, b = t; break;
+//     // case 3: r = p, g = q, b = v; break;
+//     // case 4: r = t, g = p, b = v; break;
+//     // case 5: r = v, g = p, b = q; break;
+//     };
+//
+//     (
+//     (r * 255.) as u8,
+//     (g * 255.) as u8,
+//     (b * 255.) as u8,
+//     )
+// }

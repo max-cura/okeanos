@@ -72,7 +72,7 @@ _relocation_stub:
 
     ldr r10, loc.gpio_base
 
-#if 0
+#if 1
     ldr r5, [r10, #0x08]
     mov r7, #7
     mvn r7, r7, lsl #21
@@ -90,15 +90,23 @@ _relocation_stub:
     orr r5, r5, r7, lsl #21
     str r5, [r10, #0x10]
 
+    @mov r4, #1
+    @lsl r4, r4, #(47-32)
+    @str r4, [r10, #0x2c]
+    @mov r4, #1
+    @lsl r4, r4, #(27)
+    @str r4, [r10, #0x1c]
+
     _dsb(r4)
 .gpio_setup.done:
     b .fastreloc_copy
+    @b .slowreloc_copy
 
 @ INPUT: r0, r1, r2
 @ OUTPUT: N/A
 @ CLOBBERS: r0, r1, r4, r5, r6, r7, r8
 .fastreloc_copy:
-    bl .actled.on
+    @bl .actled.on
 .fastreloc_try_coarse:
     mvn r8, #0x0f
     ands r8, r2, r8
@@ -119,14 +127,14 @@ _relocation_stub:
     subs r8, r8, #4
     bne .fastreloc_loop_fine
 .fastreloc_done:
-    bl .actled.off
+    @bl .actled.off
     b .postreloc
 
 @ INPUT: r0, r1, r2
 @ OUTPUT: N/A
 @ CLOBBERS: r0, r1, r2, r4
 .slowreloc_copy:
-    bl .actled.on
+    @bl .actled.on
 
     teq r2, #0
     beq .slowreloc_done

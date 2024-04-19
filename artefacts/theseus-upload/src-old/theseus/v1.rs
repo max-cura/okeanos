@@ -4,7 +4,7 @@ use std::process::exit;
 use std::time::Duration;
 use color_eyre::eyre;
 use serialport::{SerialPort, TTYPort};
-use theseus_common::cobs::{FeedState, LineDecoder};
+use theseus_common::cobs::{BufferedEncoder, EncodeState, FeedState, LineDecoder};
 use theseus_common::theseus::{ProgramCRC32, TheseusVersion};
 use theseus_common::theseus::v1::{SET_BAUD_RATE_TIMEOUT, MESSAGE_PRECURSOR, MessageContent, RETRY_ATTEMPTS_CAP, RECEIVE_TIMEOUT};
 use crate::args::Args;
@@ -50,13 +50,14 @@ impl State {
 pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
     tty.set_timeout(RECEIVE_TIMEOUT)?;
 
+    let raw_program_data = std::fs::read(args.bin_file.as_path())?;
     let program_data = {
-        let raw_data = std::fs::read(args.bin_file.as_path())?;
-        miniz_oxide::deflate::compress_to_vec(&raw_data, miniz_oxide::deflate::CompressionLevel::BestSpeed as u8)
+        raw_program_data.clone()
+        // miniz_oxide::deflate::compress_to_vec(&raw_program_data, miniz_oxide::deflate::CompressionLevel::BestSpeed as u8)
     };
     let program_crc32 = {
         let mut crc = ProgramCRC32::new();
-        crc.add_data(&program_data);
+        crc.add_data(&raw_program_data);
         crc.finalize()
     };
 
@@ -69,7 +70,7 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
     log::info!("[{}]: Setting device to THESEUSv1 protocol", bin_name());
     state = State::SettingProtocolVersion;
     outgoing_msg = MessageContent::SetProtocolVersion {
-        version: TheseusVersion::TheseusV1 as u32,
+        version: 1,
     };
 
     let mut retries_since_last_received = 0;
@@ -85,15 +86,17 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
         if !try_recv_messages(tty, &mut incoming_msgs_buf)? {
             if track_retries {
                 if retries_since_last_received == RETRY_ATTEMPTS_CAP {
-                    log::error!("[{}]: Failed to send after {} retries. Aborting.", bin_name(), RETRY_ATTEMPTS_CAP);
+                    log::error!("[{}]: Failed to read after {} retries. Aborting.", bin_name(), RETRY_ATTEMPTS_CAP);
                     exit(1);
                 }
                 log::trace!("[{}]: Hit read timeout, retrying ({retries_since_last_received}/{})", bin_name(), RETRY_ATTEMPTS_CAP);
                 retries_since_last_received += 1;
             } else {
-                log::trace!("[{}]: Hit read timeout, retrying (unlimited).", bin_name())
+                // log::trace!("[{}]: Hit read timeout, retrying (unlimited).", bin_name())
             }
             continue
+        } else {
+            retries_since_last_received = 0;
         }
         while let Some(incoming_msg_buf) = incoming_msgs_buf.pop_front() {
             let msg = postcard::from_bytes(&incoming_msg_buf.content)
@@ -103,9 +106,9 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
                 // Device->Host messages
                 MessageContent::PrintMessageRPC { message } => {
                     // special message that can come in at any time
-                    log::info!("[{}]: < {}", bin_name(), std::str::from_utf8(message)
-                    .map(ToString::to_string)
-                    .unwrap_or_else(|e| format!("<invalid UTF-8: {e}>")));
+                    log::info!("[{}]: < {}", bin_name(), message);
+                    // .map(ToString::to_string)
+                    // .unwrap_or_else(|e| format!("<invalid UTF-8: {e}>")));
                 }
                 MessageContent::RequestProgramInfoRPC => {
                     // expected in TransitioningBaudRate and SettingProtocolVersion
@@ -120,6 +123,7 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
                                 state = State::SendingProgramInfo;
                                 outgoing_msg = MessageContent::ProgramInfo {
                                     load_at_address: args.address,
+                                    // THIS IS CORRECT: ENCODED LENGTH
                                     program_size: program_data.len() as u32,
                                     program_crc32,
                                 };
@@ -139,13 +143,14 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
                     // expected in SettingBaudRate
                     match state {
                         State::SettingBaudRate => {
+                            // acknowledge we saw BaudRateAck
+                            send_message(tty, &MessageContent::BaudRateReady).inspect_err(|e| {
+                                log::error!("[{}]: Failed to send message: {}", bin_name(), e);
+                            })?;
+
                             if possible {
                                 // received ack
                                 log::debug!("[{}]: Attempting to set baud rate to {}", bin_name(), args.baud);
-                                send_message(tty, &MessageContent::BaudRateReady).inspect_err(|e| {
-                                    log::error!("[{}]: Failed to send message: {}", bin_name(), e);
-                                })?;
-
                                 tty.set_baud_rate(args.baud)?;
 
                                 let brr_send_time = std::time::Instant::now();
@@ -175,6 +180,7 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
                                     state = State::SendingProgramInfo;
                                     outgoing_msg = MessageContent::ProgramInfo {
                                         load_at_address: args.address,
+                                        // THIS IS CORRECT: ENCODED LENGTH
                                         program_size: program_data.len() as u32,
                                         program_crc32,
                                     };
@@ -211,6 +217,7 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
                     }
                 }
                 MessageContent::ReadyForChunk { chunk_no } => {
+                    track_retries = false;
                     // expected in SendingProgramReady and SendingProgramChunk
                     match state {
                         State::SendingProgramReady | State::SendingProgramChunk => {
@@ -218,9 +225,14 @@ pub(crate) fn dispatch(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
                             if offset >= program_data.len() {
                                 log::error!("[{}]: Invalid chunk_no: {chunk_no} when program only has {} chunks", bin_name(), (program_data.len() + chunk_size - 1) / chunk_size);
                             } else {
-                                let end = (offset + (chunk_size)).max(program_data.len());
+                                let end = (offset + (chunk_size)).min(program_data.len());
                                 let chunk_data = &program_data[offset..end];
-                                log::info!("[{}]: Sending chunk #{chunk_no}", bin_name());
+                                if match outgoing_msg {
+                                    MessageContent::ProgramChunk { chunk_no: pc_chunkno, .. } => chunk_no > pc_chunkno,
+                                    _ => true
+                                } {
+                                    log::info!("[{}]: Sending chunk #{chunk_no}: {}", bin_name(), hexify(chunk_data));
+                                }
                                 if matches!(state, State::SendingProgramReady) {
                                     log::debug!("transition: SendingProgramReady -> SendingProgramChunk");
                                     state = State::SendingProgramChunk;
@@ -286,10 +298,29 @@ fn try_recv_messages<'a>(
 pub fn send_message(tty: &mut TTYPort, msg: &MessageContent) -> eyre::Result<()> {
     // PRECURSOR [MESSAGE]
     tty.write32_le(MESSAGE_PRECURSOR)?;
-    let v = postcard::to_stdvec(msg)?;
-    let v_cobs = cobs::encode_vec(&v);
+    let mut v = postcard::to_stdvec(msg)?;
+    let crc = crc32fast::hash(&v);
+    v.extend(crc.to_le_bytes());
+    // log::trace!("--) {}", hexify(&v));
+    let mut v_cobs = Vec::new();
+    let mut encode_buf = [0u8 ; 254];
+    {
+        let mut be = BufferedEncoder::with_buffer(&mut encode_buf).unwrap();
+        let mut p = be.packet();
+        for b in v {
+            match p.add_byte(b) {
+                EncodeState::Buf(s) => {
+                    v_cobs.extend_from_slice(s);
+                }
+                EncodeState::Pass => {}
+            }
+        }
+        v_cobs.extend_from_slice(p.finish());
+    }
+
     log::trace!("> {}", hexify(&v_cobs));
-    Ok(tty.write_all(&v_cobs)?)
+    tty.write_all(&v_cobs)?;
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -380,17 +411,14 @@ pub fn recv_message_raw(tty: &mut TTYPort) -> eyre::Result<Vec<MessageRaw>> {
             log::error!("[{}]: COBS packet empty or incomplete: {}", bin_name(), hexify(&buf_unstuffed));
             continue
         }
-        // let buf_unstuffed = cobs::decode_vec(&buf)
-        //      .map_err(|_| eyre::eyre!("Failed to COBS-decode buffer: {}", hexify(&buf)))?;
 
-
-        // log::trace!("--< {}", hexify(&buf_unstuffed));
-        // log::trace!("--( {}",
-        //     buf_unstuffed
-        //         .iter()
-        //         .map(|&b| if b.is_ascii_graphic() { b.as_ascii().unwrap().to_char() } else { '.' })
-        //         .collect::<String>()
-        // );
+        log::trace!("--< COBS_DECODED {}", hexify(&buf_unstuffed));
+        log::trace!("--( COBS_DECODED_ASCII {}",
+            buf_unstuffed
+                .iter()
+                .map(|&b| if b.is_ascii_graphic() { b.as_ascii().unwrap().to_char() } else { '.' })
+                .collect::<String>()
+        );
 
         if buf_unstuffed.len() < 4 {
             eyre::bail!("Message too small: {}", hexify(&buf_unstuffed));

@@ -40,6 +40,8 @@ KERNEL_LDFLAGS += -Wl,--gc-sections
 # TODO: investigate
 KERNEL_LDFLAGS += -z noexecstack
 
+CARGO_VARS=THESEUS_DEVICE_GIT_DESC="$(shell git rev-parse --short HEAD)" THESEUS_DEVICE_BUILD_DATE="$(shell date -j "+%Y-%m-%d %H:%M:%S %Z")"
+
 #
 # INTERNALS
 #
@@ -58,7 +60,7 @@ $(CRATE_DIR)/$(TARGET).json: $(INF_TARGETS_DIR)/$(TARGET).json
 	cp $< $@
 
 $(_RUST_TARGET_DIR)/$(KLIB): _theseus-device_cargo $(CRATE_DIR)/$(TARGET).json
-	( cd $(CRATE_DIR) ; cargo build --profile $(_RUST_PROFILE) )
+	( cd $(CRATE_DIR) ; $(CARGO_VARS) cargo build --profile $(_RUST_PROFILE) )
 
 $(ARTEFACT_BUILD_DIR)/boot.o: $(CRATE_DIR)/extern/boot.S
 	$(INF_ARM_NONE_EABI_GCC) -c $(BOOT_ASFLAGS) -o $@ $^

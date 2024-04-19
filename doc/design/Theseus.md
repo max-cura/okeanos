@@ -1,3 +1,9 @@
+# TODO
+
+ - more sane timeouts/timeout behaviour
+
+# Intro
+
 Simple boot-over-serial protocol.
 Designed to be backwards compatible with SU-BOOT (as I am christening the cs140e/cs240lx bootloader).
 

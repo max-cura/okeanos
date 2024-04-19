@@ -1,4 +1,4 @@
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::time::Duration;
 use color_eyre::{eyre, Section as _};
 use serialport::{DataBits, FlowControl, Parity, StopBits, TTYPort};
@@ -9,7 +9,6 @@ use crate::find_tty::find_most_recent_tty_serial_device;
 use theseus_common::{
     INITIAL_BAUD_RATE,
 };
-use theseus_common::theseus::{TheseusVersion, validate_version, VersionValidation};
 use crate::echo::echo;
 use crate::io::RW32;
 
@@ -44,22 +43,20 @@ pub fn protocol_begin(
         .open_native()
         .with_note(|| format!("while trying to open {} in 8n1 with no flow control", device_path.display()))?;
 
-    match state_initial(&args, &mut tty) {
-        InitialBranch::Legacy => {
-            crate::legacy::begin(&args, &mut tty)?;
-            echo(&args, &mut tty)
-        }
-        InitialBranch::Theseus { version } => {
-            crate::theseus::version_dispatch(version, &args, &mut tty)?;
-            echo(&args, &mut tty)
+    let mut succeeded = false;
+    for attempt_no in 1..=5 {
+        log::info!("[{}]: Attempting ({attempt_no}/5) to promote protocol", bin_name());
+
+        if super::theseus::try_promote(&args, &mut tty)? {
+            succeeded = true;
+            break
         }
     }
-}
-
-#[derive(Debug, Copy, Clone)]
-enum InitialBranch {
-    Legacy,
-    Theseus { version: TheseusVersion },
+    if !succeeded {
+        state_initial(&args, &mut tty);
+        crate::legacy::begin(&args, &mut tty)?;
+    }
+    echo(&args, &mut tty)
 }
 
 /// Wait for GET_PROG_INFO, and figure out what version of THESEUS to execute or if we should switch
@@ -67,7 +64,7 @@ enum InitialBranch {
 fn state_initial(
     _args: &Args,
     tty: &mut TTYPort
-) -> InitialBranch {
+) {
     let mut status = 0;
     log::debug!("Waiting for GET_PROG_INFO");
     loop {
@@ -111,27 +108,6 @@ fn state_initial(
 
     log::debug!("Found GET_PROG_INFO");
 
-    use std::io::Read as _;
-    let mut version_word1_buf : [u8 ; 4] = [0,0,0,0];
-    let _ = tty.read_exact(&mut version_word1_buf);
-    let version_word1 = u32::from_le_bytes(version_word1_buf);
-
-    log::debug!("THESEUS version word: {version_word1:#010x}");
-
-    match validate_version(version_word1) {
-        Ok(version) => InitialBranch::Theseus {version},
-        Err(e) => {
-            match e {
-                VersionValidation::ValidUnknown => {
-                    log::warn!("Device supports THESEUS protocol version that {} does not know, falling back to {}", bin_name(), TheseusVersion::max_value());
-                    InitialBranch::Theseus { version: TheseusVersion::max_value() }
-                }
-                VersionValidation::Invalid => {
-                    log::warn!("Device does not support THESEUS protocol, falling back to SU-BOOT");
-                    log::warn!("Legacy SU-BOOT mode is INCOMPLETE and does not implement the commands: BOOT_START and has incomplete support for the commands: PRINT_STRING!");
-                    InitialBranch::Legacy
-                }
-            }
-        }
-    }
+    log::warn!("Device does not support THESEUS protocol, falling back to SU-BOOT");
+    log::warn!("Legacy SU-BOOT mode is INCOMPLETE and does not implement the commands: BOOT_START and has incomplete support for the commands: PRINT_STRING!");
 }

@@ -149,6 +149,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 
 [[package]]
+name = "bytemuck"
+version = "1.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d6d68c57235a3a081186990eca2867354726650f42f7516ca50c28d6281fd15"
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -764,6 +770,7 @@ dependencies = [
 name = "theseus-common"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "crc32fast",
  "postcard",
  "serde",
@@ -775,8 +782,10 @@ version = "0.1.0"
 dependencies = [
  "bcm2835-lpa",
  "crc32fast",
+ "embedded-io 0.6.1",
  "postcard",
  "theseus-common",
+ "thiserror-core",
 ]
 
 [[package]]
@@ -791,6 +800,7 @@ dependencies = [
  "log",
  "miniz_oxide",
  "postcard",
+ "serde",
  "serialport",
  "stderrlog",
  "theseus-common",
@@ -803,6 +813,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03468839009160513471e86a034bb2c5c0e4baae3b43f79ffc55c4a5427b3297"
 dependencies = [
  "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-core"
+version = "1.0.50"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c001ee18b7e5e3f62cbf58c7fe220119e68d902bb7443179c0c8aef30090e999"
+dependencies = [
+ "thiserror-core-impl",
+]
+
+[[package]]
+name = "thiserror-core-impl"
+version = "1.0.50"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4c60d69f36615a077cc7663b9cb8e42275722d23e58a7fa3d2c7f2915d09d04"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

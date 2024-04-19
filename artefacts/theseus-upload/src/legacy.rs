@@ -3,7 +3,6 @@ use std::process::exit;
 use color_eyre::{eyre, Section};
 use serialport::{ClearBuffer, SerialPort, TTYPort};
 use theseus_common::su_boot::Command;
-use theseus_common::theseus::ProgramCRC32;
 use crate::args::{Args, TraceLevel};
 use crate::bin_name;
 use crate::io::RW32;
@@ -51,9 +50,7 @@ pub(crate) fn begin(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
 
     let prog_data = std::fs::read(args.bin_file.as_path())?;
 
-    let mut crc = ProgramCRC32::new();
-    crc.add_data(&prog_data);
-    let crc32 = crc.finalize();
+    let crc32 = crc32fast::hash(&prog_data);
 
     // PUT_PROG_INFO
 

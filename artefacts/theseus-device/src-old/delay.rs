@@ -19,7 +19,7 @@ impl STInstant {
         Self { micros: st_read(st) }
     }
     pub fn elapsed(&self, st: &SYSTMR) -> Duration {
-        Duration::from_micros(st_read(st) - self.micros)
+        Duration::from_micros(st_read(st).wrapping_sub(self.micros))
     }
 }
 

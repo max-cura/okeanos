@@ -7,3 +7,4 @@ edition = "2021"
 serde = { version = "1.0.197", default-features = false, features = ["derive"] }
 postcard = { version = "1.0.8", default-features = false, features = []}
 crc32fast = { version = "1.4.0", default-features = false, features = [] }
+bytemuck = { version = "1.15.0" }

@@ -1,0 +1,1101 @@
+   Compiling theseus-device v0.1.0 (/Users/bosporos/backstreet/cs240lx/okeanos/artefacts/theseus-device)
+error[E0432]: unresolved imports `crate::__theseus_prog_end__`, `crate::_relocation_stub`, `crate::_relocation_stub_end`, `crate::boot_umsg`, `crate::uart1`
+ --> artefacts/theseus-device/src/legacy/staging.rs:1:13
+  |
+1 | use crate::{__theseus_prog_end__, _relocation_stub, _relocation_stub_end, boot_umsg, uart1};
+  |             ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^ no `uart1` in the root
+  |             |                     |                 |                     |
+  |             |                     |                 |                     no `boot_umsg` in the root
+  |             |                     |                 no `_relocation_stub_end` in the root
+  |             |                     no `_relocation_stub` in the root
+  |             no `__theseus_prog_end__` in the root
+  |
+  = help: consider importing one of these items instead:
+          bcm2835_lpa::uart1
+          crate::legacy::uart1
+
+error[E0432]: unresolved import `crate::fmt`
+ --> artefacts/theseus-device/src/legacy/staging.rs:2:12
+  |
+2 | use crate::fmt::UartWrite;
+  |            ^^^
+  |            |
+  |            unresolved import
+  |            help: a similar path exists: `core::fmt`
+
+warning: the feature `core_intrinsics` is internal to the compiler or standard library
+ --> artefacts/theseus-device/src/lib.rs:3:12
+  |
+3 | #![feature(core_intrinsics)]
+  |            ^^^^^^^^^^^^^^^
+  |
+  = note: using it is strongly discouraged
+  = note: `#[warn(internal_features)]` on by default
+
+warning: unused import: `core::fmt::Write`
+ --> artefacts/theseus-device/src/legacy/staging.rs:3:5
+  |
+3 | use core::fmt::Write;
+  |     ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `SYSTMR`
+  --> artefacts/theseus-device/src/legacy.rs:14:19
+   |
+14 | use bcm2835_lpa::{SYSTMR, UART1};
+   |                   ^^^^^^
+
+warning: unused import: `core::fmt::Write as _`
+  --> artefacts/theseus-device/src/legacy.rs:17:5
+   |
+17 | use core::fmt::Write as _;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PacketEncoder`
+ --> artefacts/theseus-device/src/reactor.rs:4:39
+  |
+4 | use theseus_common::cobs::{FeedState, PacketEncoder};
+  |                                       ^^^^^^^^^^^^^
+
+error[E0277]: `ReceiveError` doesn't implement `Debug`
+  --> artefacts/theseus-device/src/reactor.rs:62:6
+   |
+62 | enum ReceiveError {
+   |      ^^^^^^^^^^^^ `ReceiveError` cannot be formatted using `{:?}`
+   |
+   = help: the trait `Debug` is not implemented for `ReceiveError`
+   = note: add `#[derive(Debug)]` to `ReceiveError` or manually `impl Debug for ReceiveError`
+note: required by a bound in `core::error::Error`
+  --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/error.rs:32:18
+   |
+32 | pub trait Error: Debug + Display {
+   |                  ^^^^^ required by this bound in `Error`
+help: consider annotating `ReceiveError` with `#[derive(Debug)]`
+   |
+62 + #[derive(Debug)]
+63 | enum ReceiveError {
+   |
+
+error[E0015]: cannot call non-const fn `RateRelativeTimeout::from_bytes` in constants
+   --> artefacts/theseus-device/src/reactor.rs:140:54
+    |
+140 |     pub const ERROR_RECOVERY : RateRelativeTimeout = RateRelativeTimeout::from_bytes(12);
+    |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: calls in constants are limited to constant functions, tuple structs and tuple variants
+
+error[E0599]: cannot write into `&mut TinyBuf<16384>`
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:31:5
+    |
+31  |     boot_umsg!(uw, "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode.");
+    |     ------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    |
+note: must implement `io::Write`, `fmt::Write`, or have a `write_fmt` method
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:31:5
+    |
+31  |     boot_umsg!(uw, "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode.");
+    |     ------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_fmt` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_str` with a similar name
+   --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/macros/mod.rs:632:14
+    |
+632 |         $dst.write_str($crate::format_args!($($arg)*))
+    |              ~~~~~~~~~
+
+error[E0599]: no method named `write_str` found for struct `UartWrite` in the current scope
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:30
+    |
+5   | pub struct UartWrite<'a> {
+    | ------------------------ method `write_str` not found for this struct
+...
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ^^^^^^^^^
+    |
+   ::: /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/fmt/mod.rs:138:8
+    |
+138 |     fn write_str(&mut self, s: &str) -> Result;
+    |        --------- the method is available for `UartWrite<'_>` here
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:31:5
+    |
+31  |     boot_umsg!(uw, "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode.");
+    |     ------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_str` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_char` with a similar name
+    |
+106 |                 let _ = $out.write_char(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ~~~~~~~~~~
+
+error[E0599]: cannot write into `&mut TinyBuf<16384>`
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:32:5
+    |
+32  |     boot_umsg!(uw, "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}");
+    |     ------------------------------------------------------------------------------------------------------------ in this macro invocation
+    |
+note: must implement `io::Write`, `fmt::Write`, or have a `write_fmt` method
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:32:5
+    |
+32  |     boot_umsg!(uw, "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}");
+    |     ------------------------------------------------------------------------------------------------------------ in this macro invocation
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_fmt` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_str` with a similar name
+   --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/macros/mod.rs:632:14
+    |
+632 |         $dst.write_str($crate::format_args!($($arg)*))
+    |              ~~~~~~~~~
+
+error[E0599]: no method named `write_str` found for struct `UartWrite` in the current scope
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:30
+    |
+5   | pub struct UartWrite<'a> {
+    | ------------------------ method `write_str` not found for this struct
+...
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ^^^^^^^^^
+    |
+   ::: /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/fmt/mod.rs:138:8
+    |
+138 |     fn write_str(&mut self, s: &str) -> Result;
+    |        --------- the method is available for `UartWrite<'_>` here
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:32:5
+    |
+32  |     boot_umsg!(uw, "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}");
+    |     ------------------------------------------------------------------------------------------------------------ in this macro invocation
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_str` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_char` with a similar name
+    |
+106 |                 let _ = $out.write_char(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ~~~~~~~~~~
+
+error[E0599]: cannot write into `&mut TinyBuf<16384>`
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:49:5
+    |
+49  |     boot_umsg!(uw, "[theseus-device]: relocation configuration:");
+    |     ------------------------------------------------------------- in this macro invocation
+    |
+note: must implement `io::Write`, `fmt::Write`, or have a `write_fmt` method
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:49:5
+    |
+49  |     boot_umsg!(uw, "[theseus-device]: relocation configuration:");
+    |     ------------------------------------------------------------- in this macro invocation
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_fmt` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_str` with a similar name
+   --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/macros/mod.rs:632:14
+    |
+632 |         $dst.write_str($crate::format_args!($($arg)*))
+    |              ~~~~~~~~~
+
+error[E0599]: no method named `write_str` found for struct `UartWrite` in the current scope
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:30
+    |
+5   | pub struct UartWrite<'a> {
+    | ------------------------ method `write_str` not found for this struct
+...
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ^^^^^^^^^
+    |
+   ::: /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/fmt/mod.rs:138:8
+    |
+138 |     fn write_str(&mut self, s: &str) -> Result;
+    |        --------- the method is available for `UartWrite<'_>` here
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:49:5
+    |
+49  |     boot_umsg!(uw, "[theseus-device]: relocation configuration:");
+    |     ------------------------------------------------------------- in this macro invocation
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_str` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_char` with a similar name
+    |
+106 |                 let _ = $out.write_char(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ~~~~~~~~~~
+
+error[E0599]: cannot write into `&mut TinyBuf<16384>`
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:50:5
+    |
+50  |     boot_umsg!(uw, "\tRelocate: {}", if relocate { "yes" } else { "no "});
+    |     --------------------------------------------------------------------- in this macro invocation
+    |
+note: must implement `io::Write`, `fmt::Write`, or have a `write_fmt` method
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:50:5
+    |
+50  |     boot_umsg!(uw, "\tRelocate: {}", if relocate { "yes" } else { "no "});
+    |     --------------------------------------------------------------------- in this macro invocation
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_fmt` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_str` with a similar name
+   --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/macros/mod.rs:632:14
+    |
+632 |         $dst.write_str($crate::format_args!($($arg)*))
+    |              ~~~~~~~~~
+
+error[E0599]: no method named `write_str` found for struct `UartWrite` in the current scope
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:30
+    |
+5   | pub struct UartWrite<'a> {
+    | ------------------------ method `write_str` not found for this struct
+...
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ^^^^^^^^^
+    |
+   ::: /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/fmt/mod.rs:138:8
+    |
+138 |     fn write_str(&mut self, s: &str) -> Result;
+    |        --------- the method is available for `UartWrite<'_>` here
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:50:5
+    |
+50  |     boot_umsg!(uw, "\tRelocate: {}", if relocate { "yes" } else { "no "});
+    |     --------------------------------------------------------------------- in this macro invocation
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_str` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_char` with a similar name
+    |
+106 |                 let _ = $out.write_char(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ~~~~~~~~~~
+
+error[E0599]: cannot write into `&mut TinyBuf<16384>`
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                   let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:52:9
+    |
+52  | /         boot_umsg!(uw, "\tTarget: [{:#010x}..{:#010x}] to [{:#010x}..{:#010x}]",
+53  | |             relocate_prog_from, relocate_prog_from+relocate_prog_len,
+54  | |             relocate_prog_to, relocate_prog_to+relocate_prog_len);
+    | |_________________________________________________________________- in this macro invocation
+    |
+note: must implement `io::Write`, `fmt::Write`, or have a `write_fmt` method
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                   let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:52:9
+    |
+52  | /         boot_umsg!(uw, "\tTarget: [{:#010x}..{:#010x}] to [{:#010x}..{:#010x}]",
+53  | |             relocate_prog_from, relocate_prog_from+relocate_prog_len,
+54  | |             relocate_prog_to, relocate_prog_to+relocate_prog_len);
+    | |_________________________________________________________________- in this macro invocation
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_fmt` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_str` with a similar name
+   --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/macros/mod.rs:632:14
+    |
+632 |         $dst.write_str($crate::format_args!($($arg)*))
+    |              ~~~~~~~~~
+
+error[E0599]: no method named `write_str` found for struct `UartWrite` in the current scope
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:30
+    |
+5   |   pub struct UartWrite<'a> {
+    |   ------------------------ method `write_str` not found for this struct
+...
+106 |                   let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                ^^^^^^^^^
+    |
+   ::: /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/fmt/mod.rs:138:8
+    |
+138 |       fn write_str(&mut self, s: &str) -> Result;
+    |          --------- the method is available for `UartWrite<'_>` here
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:52:9
+    |
+52  | /         boot_umsg!(uw, "\tTarget: [{:#010x}..{:#010x}] to [{:#010x}..{:#010x}]",
+53  | |             relocate_prog_from, relocate_prog_from+relocate_prog_len,
+54  | |             relocate_prog_to, relocate_prog_to+relocate_prog_len);
+    | |_________________________________________________________________- in this macro invocation
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_str` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_char` with a similar name
+    |
+106 |                 let _ = $out.write_char(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ~~~~~~~~~~
+
+error[E0599]: cannot write into `&mut TinyBuf<16384>`
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                   let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:55:9
+    |
+55  | /         boot_umsg!(uw, "\tStub: [{:#010x}]",
+56  | |             relocate_stub_to);
+    | |_____________________________- in this macro invocation
+    |
+note: must implement `io::Write`, `fmt::Write`, or have a `write_fmt` method
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                   let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:55:9
+    |
+55  | /         boot_umsg!(uw, "\tStub: [{:#010x}]",
+56  | |             relocate_stub_to);
+    | |_____________________________- in this macro invocation
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_fmt` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_str` with a similar name
+   --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/macros/mod.rs:632:14
+    |
+632 |         $dst.write_str($crate::format_args!($($arg)*))
+    |              ~~~~~~~~~
+
+error[E0599]: no method named `write_str` found for struct `UartWrite` in the current scope
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:30
+    |
+5   |   pub struct UartWrite<'a> {
+    |   ------------------------ method `write_str` not found for this struct
+...
+106 |                   let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                ^^^^^^^^^
+    |
+   ::: /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/fmt/mod.rs:138:8
+    |
+138 |       fn write_str(&mut self, s: &str) -> Result;
+    |          --------- the method is available for `UartWrite<'_>` here
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:55:9
+    |
+55  | /         boot_umsg!(uw, "\tStub: [{:#010x}]",
+56  | |             relocate_stub_to);
+    | |_____________________________- in this macro invocation
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_str` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_char` with a similar name
+    |
+106 |                 let _ = $out.write_char(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ~~~~~~~~~~
+
+error[E0599]: cannot write into `&mut TinyBuf<16384>`
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                   let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:57:9
+    |
+57  | /         boot_umsg!(uw, "\tSize: {}/{} KiB",
+58  | |             (relocate_prog_len + 1023) / 1024, (len + 1023) / 1024);
+    | |___________________________________________________________________- in this macro invocation
+    |
+note: must implement `io::Write`, `fmt::Write`, or have a `write_fmt` method
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                   let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:57:9
+    |
+57  | /         boot_umsg!(uw, "\tSize: {}/{} KiB",
+58  | |             (relocate_prog_len + 1023) / 1024, (len + 1023) / 1024);
+    | |___________________________________________________________________- in this macro invocation
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_fmt` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_str` with a similar name
+   --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/macros/mod.rs:632:14
+    |
+632 |         $dst.write_str($crate::format_args!($($arg)*))
+    |              ~~~~~~~~~
+
+error[E0599]: no method named `write_str` found for struct `UartWrite` in the current scope
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:30
+    |
+5   |   pub struct UartWrite<'a> {
+    |   ------------------------ method `write_str` not found for this struct
+...
+106 |                   let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                ^^^^^^^^^
+    |
+   ::: /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/fmt/mod.rs:138:8
+    |
+138 |       fn write_str(&mut self, s: &str) -> Result;
+    |          --------- the method is available for `UartWrite<'_>` here
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:57:9
+    |
+57  | /         boot_umsg!(uw, "\tSize: {}/{} KiB",
+58  | |             (relocate_prog_len + 1023) / 1024, (len + 1023) / 1024);
+    | |___________________________________________________________________- in this macro invocation
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_str` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_char` with a similar name
+    |
+106 |                 let _ = $out.write_char(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ~~~~~~~~~~
+
+error[E0599]: cannot write into `&mut TinyBuf<16384>`
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:145:5
+    |
+145 |     boot_umsg!(uw, "[theseus-device]: received program, calculated CRC32 is {:#010x}, expected {:#010x}: {}", verify_crc32, crc, if crc_ok { "ok" } else { "mismatch" ...
+    |     -------------------------------------------------------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    |
+note: must implement `io::Write`, `fmt::Write`, or have a `write_fmt` method
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:145:5
+    |
+145 |     boot_umsg!(uw, "[theseus-device]: received program, calculated CRC32 is {:#010x}, expected {:#010x}: {}", verify_crc32, crc, if crc_ok { "ok" } else { "mismatch" ...
+    |     -------------------------------------------------------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_fmt` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_str` with a similar name
+   --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/macros/mod.rs:632:14
+    |
+632 |         $dst.write_str($crate::format_args!($($arg)*))
+    |              ~~~~~~~~~
+
+error[E0599]: no method named `write_str` found for struct `UartWrite` in the current scope
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:30
+    |
+5   | pub struct UartWrite<'a> {
+    | ------------------------ method `write_str` not found for this struct
+...
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ^^^^^^^^^
+    |
+   ::: /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/fmt/mod.rs:138:8
+    |
+138 |     fn write_str(&mut self, s: &str) -> Result;
+    |        --------- the method is available for `UartWrite<'_>` here
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:145:5
+    |
+145 |     boot_umsg!(uw, "[theseus-device]: received program, calculated CRC32 is {:#010x}, expected {:#010x}: {}", verify_crc32, crc, if crc_ok { "ok" } else { "mismatch" ...
+    |     -------------------------------------------------------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_str` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_char` with a similar name
+    |
+106 |                 let _ = $out.write_char(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ~~~~~~~~~~
+
+error[E0599]: cannot write into `&mut TinyBuf<16384>`
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:148:9
+    |
+148 |         boot_umsg!(uw, "[theseus-device]: fatal CRC mismatch, rebooting");
+    |         ----------------------------------------------------------------- in this macro invocation
+    |
+note: must implement `io::Write`, `fmt::Write`, or have a `write_fmt` method
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:40
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:148:9
+    |
+148 |         boot_umsg!(uw, "[theseus-device]: fatal CRC mismatch, rebooting");
+    |         ----------------------------------------------------------------- in this macro invocation
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_fmt` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_str` with a similar name
+   --> /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/macros/mod.rs:632:14
+    |
+632 |         $dst.write_str($crate::format_args!($($arg)*))
+    |              ~~~~~~~~~
+
+error[E0599]: no method named `write_str` found for struct `UartWrite` in the current scope
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:30
+    |
+5   | pub struct UartWrite<'a> {
+    | ------------------------ method `write_str` not found for this struct
+...
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ^^^^^^^^^
+    |
+   ::: /Users/bosporos/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/fmt/mod.rs:138:8
+    |
+138 |     fn write_str(&mut self, s: &str) -> Result;
+    |        --------- the method is available for `UartWrite<'_>` here
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:148:9
+    |
+148 |         boot_umsg!(uw, "[theseus-device]: fatal CRC mismatch, rebooting");
+    |         ----------------------------------------------------------------- in this macro invocation
+    |
+    = help: items from traits can only be used if the trait is in scope
+    = note: this error originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: trait `Write` which provides `write_str` is implemented but not in scope; perhaps you want to import it
+   --> artefacts/theseus-device/src/legacy.rs:1:1
+    |
+1   + use core::fmt::Write;
+    |
+help: there is a method `write_char` with a similar name
+    |
+106 |                 let _ = $out.write_char(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                              ~~~~~~~~~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:49
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:31:5
+    |
+31  |     boot_umsg!(uw, "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode.");
+    |     ------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this mutable reference has lifetime `'static`, but if the static gets accessed (read or written) by any other means, or any other reference is created, then any further use of this mutable reference is Undefined Behavior
+    = note: `#[warn(static_mut_refs)]` on by default
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of_mut!` instead to create a raw pointer
+    |
+105 |                 let _ = ::core::write!(unsafe { addr_of_mut!(crate::legacy::fmt::BOOT_UMSG_BUF) }, $($arg)*);
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a shared reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:49
+    |
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:31:5
+    |
+31  |     boot_umsg!(uw, "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode.");
+    |     ------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this shared reference has lifetime `'static`, but if the static ever gets mutated, or a mutable reference is created, then any further use of this shared reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of!` instead to create a raw pointer
+    |
+106 |                 let _ = $out.write_str(unsafe { addr_of!(crate::legacy::fmt::BOOT_UMSG_BUF) }.as_str());
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:49
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:32:5
+    |
+32  |     boot_umsg!(uw, "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}");
+    |     ------------------------------------------------------------------------------------------------------------ in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this mutable reference has lifetime `'static`, but if the static gets accessed (read or written) by any other means, or any other reference is created, then any further use of this mutable reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of_mut!` instead to create a raw pointer
+    |
+105 |                 let _ = ::core::write!(unsafe { addr_of_mut!(crate::legacy::fmt::BOOT_UMSG_BUF) }, $($arg)*);
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a shared reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:49
+    |
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:32:5
+    |
+32  |     boot_umsg!(uw, "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}");
+    |     ------------------------------------------------------------------------------------------------------------ in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this shared reference has lifetime `'static`, but if the static ever gets mutated, or a mutable reference is created, then any further use of this shared reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of!` instead to create a raw pointer
+    |
+106 |                 let _ = $out.write_str(unsafe { addr_of!(crate::legacy::fmt::BOOT_UMSG_BUF) }.as_str());
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:49
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:49:5
+    |
+49  |     boot_umsg!(uw, "[theseus-device]: relocation configuration:");
+    |     ------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this mutable reference has lifetime `'static`, but if the static gets accessed (read or written) by any other means, or any other reference is created, then any further use of this mutable reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of_mut!` instead to create a raw pointer
+    |
+105 |                 let _ = ::core::write!(unsafe { addr_of_mut!(crate::legacy::fmt::BOOT_UMSG_BUF) }, $($arg)*);
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a shared reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:49
+    |
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:49:5
+    |
+49  |     boot_umsg!(uw, "[theseus-device]: relocation configuration:");
+    |     ------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this shared reference has lifetime `'static`, but if the static ever gets mutated, or a mutable reference is created, then any further use of this shared reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of!` instead to create a raw pointer
+    |
+106 |                 let _ = $out.write_str(unsafe { addr_of!(crate::legacy::fmt::BOOT_UMSG_BUF) }.as_str());
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:49
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:50:5
+    |
+50  |     boot_umsg!(uw, "\tRelocate: {}", if relocate { "yes" } else { "no "});
+    |     --------------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this mutable reference has lifetime `'static`, but if the static gets accessed (read or written) by any other means, or any other reference is created, then any further use of this mutable reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of_mut!` instead to create a raw pointer
+    |
+105 |                 let _ = ::core::write!(unsafe { addr_of_mut!(crate::legacy::fmt::BOOT_UMSG_BUF) }, $($arg)*);
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a shared reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:49
+    |
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:50:5
+    |
+50  |     boot_umsg!(uw, "\tRelocate: {}", if relocate { "yes" } else { "no "});
+    |     --------------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this shared reference has lifetime `'static`, but if the static ever gets mutated, or a mutable reference is created, then any further use of this shared reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of!` instead to create a raw pointer
+    |
+106 |                 let _ = $out.write_str(unsafe { addr_of!(crate::legacy::fmt::BOOT_UMSG_BUF) }.as_str());
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:49
+    |
+105 |                   let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:52:9
+    |
+52  | /         boot_umsg!(uw, "\tTarget: [{:#010x}..{:#010x}] to [{:#010x}..{:#010x}]",
+53  | |             relocate_prog_from, relocate_prog_from+relocate_prog_len,
+54  | |             relocate_prog_to, relocate_prog_to+relocate_prog_len);
+    | |_________________________________________________________________- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this mutable reference has lifetime `'static`, but if the static gets accessed (read or written) by any other means, or any other reference is created, then any further use of this mutable reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of_mut!` instead to create a raw pointer
+    |
+105 |                 let _ = ::core::write!(unsafe { addr_of_mut!(crate::legacy::fmt::BOOT_UMSG_BUF) }, $($arg)*);
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a shared reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:49
+    |
+106 |                   let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:52:9
+    |
+52  | /         boot_umsg!(uw, "\tTarget: [{:#010x}..{:#010x}] to [{:#010x}..{:#010x}]",
+53  | |             relocate_prog_from, relocate_prog_from+relocate_prog_len,
+54  | |             relocate_prog_to, relocate_prog_to+relocate_prog_len);
+    | |_________________________________________________________________- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this shared reference has lifetime `'static`, but if the static ever gets mutated, or a mutable reference is created, then any further use of this shared reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of!` instead to create a raw pointer
+    |
+106 |                 let _ = $out.write_str(unsafe { addr_of!(crate::legacy::fmt::BOOT_UMSG_BUF) }.as_str());
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:49
+    |
+105 |                   let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:55:9
+    |
+55  | /         boot_umsg!(uw, "\tStub: [{:#010x}]",
+56  | |             relocate_stub_to);
+    | |_____________________________- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this mutable reference has lifetime `'static`, but if the static gets accessed (read or written) by any other means, or any other reference is created, then any further use of this mutable reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of_mut!` instead to create a raw pointer
+    |
+105 |                 let _ = ::core::write!(unsafe { addr_of_mut!(crate::legacy::fmt::BOOT_UMSG_BUF) }, $($arg)*);
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a shared reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:49
+    |
+106 |                   let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:55:9
+    |
+55  | /         boot_umsg!(uw, "\tStub: [{:#010x}]",
+56  | |             relocate_stub_to);
+    | |_____________________________- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this shared reference has lifetime `'static`, but if the static ever gets mutated, or a mutable reference is created, then any further use of this shared reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of!` instead to create a raw pointer
+    |
+106 |                 let _ = $out.write_str(unsafe { addr_of!(crate::legacy::fmt::BOOT_UMSG_BUF) }.as_str());
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:49
+    |
+105 |                   let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:57:9
+    |
+57  | /         boot_umsg!(uw, "\tSize: {}/{} KiB",
+58  | |             (relocate_prog_len + 1023) / 1024, (len + 1023) / 1024);
+    | |___________________________________________________________________- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this mutable reference has lifetime `'static`, but if the static gets accessed (read or written) by any other means, or any other reference is created, then any further use of this mutable reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of_mut!` instead to create a raw pointer
+    |
+105 |                 let _ = ::core::write!(unsafe { addr_of_mut!(crate::legacy::fmt::BOOT_UMSG_BUF) }, $($arg)*);
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a shared reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:49
+    |
+106 |                   let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:57:9
+    |
+57  | /         boot_umsg!(uw, "\tSize: {}/{} KiB",
+58  | |             (relocate_prog_len + 1023) / 1024, (len + 1023) / 1024);
+    | |___________________________________________________________________- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this shared reference has lifetime `'static`, but if the static ever gets mutated, or a mutable reference is created, then any further use of this shared reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of!` instead to create a raw pointer
+    |
+106 |                 let _ = $out.write_str(unsafe { addr_of!(crate::legacy::fmt::BOOT_UMSG_BUF) }.as_str());
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:49
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:145:5
+    |
+145 |     boot_umsg!(uw, "[theseus-device]: received program, calculated CRC32 is {:#010x}, expected {:#010x}: {}", verify_crc32, crc, if crc_ok { "ok" } else { "mismatch" ...
+    |     -------------------------------------------------------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this mutable reference has lifetime `'static`, but if the static gets accessed (read or written) by any other means, or any other reference is created, then any further use of this mutable reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of_mut!` instead to create a raw pointer
+    |
+105 |                 let _ = ::core::write!(unsafe { addr_of_mut!(crate::legacy::fmt::BOOT_UMSG_BUF) }, $($arg)*);
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a shared reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:49
+    |
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:145:5
+    |
+145 |     boot_umsg!(uw, "[theseus-device]: received program, calculated CRC32 is {:#010x}, expected {:#010x}: {}", verify_crc32, crc, if crc_ok { "ok" } else { "mismatch" ...
+    |     -------------------------------------------------------------------------------------------------------------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this shared reference has lifetime `'static`, but if the static ever gets mutated, or a mutable reference is created, then any further use of this shared reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of!` instead to create a raw pointer
+    |
+106 |                 let _ = $out.write_str(unsafe { addr_of!(crate::legacy::fmt::BOOT_UMSG_BUF) }.as_str());
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:105:49
+    |
+105 |                 let _ = ::core::write!(unsafe { &mut $crate::legacy::fmt::BOOT_UMSG_BUF }, $($arg)*);
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:148:9
+    |
+148 |         boot_umsg!(uw, "[theseus-device]: fatal CRC mismatch, rebooting");
+    |         ----------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this mutable reference has lifetime `'static`, but if the static gets accessed (read or written) by any other means, or any other reference is created, then any further use of this mutable reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of_mut!` instead to create a raw pointer
+    |
+105 |                 let _ = ::core::write!(unsafe { addr_of_mut!(crate::legacy::fmt::BOOT_UMSG_BUF) }, $($arg)*);
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+warning: creating a shared reference to mutable static is discouraged
+   --> artefacts/theseus-device/src/legacy/fmt.rs:106:49
+    |
+106 |                 let _ = $out.write_str(unsafe { &$crate::legacy::fmt::BOOT_UMSG_BUF }.as_str());
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+   ::: artefacts/theseus-device/src/legacy.rs:148:9
+    |
+148 |         boot_umsg!(uw, "[theseus-device]: fatal CRC mismatch, rebooting");
+    |         ----------------------------------------------------------------- in this macro invocation
+    |
+    = note: for more information, see issue #114447 <https://github.com/rust-lang/rust/issues/114447>
+    = note: this will be a hard error in the 2024 edition
+    = note: this shared reference has lifetime `'static`, but if the static ever gets mutated, or a mutable reference is created, then any further use of this shared reference is Undefined Behavior
+    = note: this warning originates in the macro `boot_umsg` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: use `addr_of!` instead to create a raw pointer
+    |
+106 |                 let _ = $out.write_str(unsafe { addr_of!(crate::legacy::fmt::BOOT_UMSG_BUF) }.as_str());
+    |                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error[E0308]: mismatched types
+   --> artefacts/theseus-device/src/reactor.rs:244:25
+    |
+243 | /                     if received_byte_count >= total_encoded_length {
+244 | |                         ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::FrameOverflow { total_encoded_length })
+    | |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `()`, found `ReceiveState`
+245 | |                     }
+    | |_____________________- expected this to be `()`
+    |
+help: consider using a semicolon here
+    |
+244 |                         ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::FrameOverflow { total_encoded_length });
+    |                                                                                                                   +
+help: consider using a semicolon here
+    |
+245 |                     };
+    |                      +
+
+warning: unreachable expression
+   --> artefacts/theseus-device/src/reactor.rs:251:29
+    |
+249 | ...                   todo!("process message");
+    |                       ------------------------ any code following this expression is unreachable
+250 | ...
+251 | ...                   ReceiveState::Waiting
+    |                       ^^^^^^^^^^^^^^^^^^^^^ unreachable expression
+    |
+    = note: `#[warn(unreachable_code)]` on by default
+
+error[E0308]: mismatched types
+   --> artefacts/theseus-device/src/reactor.rs:255:42
+    |
+255 | ...                   Ok(_) => {}
+    |                                ^^ expected `ReceiveState`, found `()`
+
+warning: unused variable: `info`
+  --> artefacts/theseus-device/src/lib.rs:34:10
+   |
+34 | fn panic(info: &::core::panic::PanicInfo) -> ! {
+   |          ^^^^ help: if this is intentional, prefix it with an underscore: `_info`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+Some errors have detailed explanations: E0015, E0277, E0308, E0432, E0599.
+For more information about an error, try `rustc --explain E0015`.
+warning: `theseus-device` (lib) generated 25 warnings
+error: could not compile `theseus-device` (lib) due to 24 previous errors; 25 warnings emitted
+make: *** [target/armv6zk-none-eabihf/release/libtheseus_device.a] Error 101

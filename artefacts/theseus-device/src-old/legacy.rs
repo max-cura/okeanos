@@ -1,30 +1,14 @@
-pub(crate) mod fmt;
-mod uart1;
-mod staging;
-
-pub macro print_string {
-    ($w:expr, $($s:tt)*) => {
-        // $w is expected to be transmission buffer
-        use core::fmt::Write as _;
-        use super::reactor::LegacyPrintStringWriter as _;
-        let _ = core::write!(
-            $w.writer(),
-            $($s)*
-        );
-    }
-}
-
-use bcm2835_lpa::UART1;
-use fmt::{UartWrite, boot_umsg};
-use crate::arm1176::__dsb;
+use bcm2835_lpa::{SYSTMR, UART1};
+use crate::fmt::UartWrite;
+use crate::{__theseus_prog_end__, boot_umsg, data_synchronization_barrier, uart1};
+use core::fmt::Write;
+use crate::staging::{relocate_stub_inner, RelocationParams};
 
 const GET_CODE : u32 = theseus_common::su_boot::Command::GetCode as u32;
 const BOOT_SUCCESS : u32 = theseus_common::su_boot::Command::BootSuccess as u32;
 const BOOT_ERROR : u32 = theseus_common::su_boot::Command::BootError as u32;
 
-pub(crate) fn perform_download(uart: &UART1) {
-    let mut uw = UartWrite::new(uart);
-
+pub(crate) fn perform_download(uw: &mut UartWrite, uart: &UART1, _st: &SYSTMR) {
     // okay, so we just received PUT_PROGRAM_INFO
     let addr = uart1::uart1_read32_blocking(uart);
     let len = uart1::uart1_read32_blocking(uart);
@@ -35,7 +19,7 @@ pub(crate) fn perform_download(uart: &UART1) {
 
     // TODO: where exactly does the stack start again???
     // stack starts at 0x8000 and goes downwards, so assume [0..&__theseus_prog_end__] is all theseus-device
-    let self_end = unsafe { core::ptr::addr_of!(crate::stub::__theseus_prog_end__) } as usize as u32;
+    let self_end = unsafe { core::ptr::addr_of!(__theseus_prog_end__) } as usize as u32;
 
     let prog_begin = addr;
     let prog_end = addr + len;
@@ -100,7 +84,7 @@ pub(crate) fn perform_download(uart: &UART1) {
         n_bytes: usize,
         to_addr: *mut u8,
     ) {
-        __dsb();
+        data_synchronization_barrier();
         let mut i = 0;
         while i < n_bytes {
             while !uart.stat().read().data_ready().bit_is_set() {}
@@ -108,7 +92,7 @@ pub(crate) fn perform_download(uart: &UART1) {
             unsafe { to_addr.offset(i as isize).write(b); }
             i += 1;
         }
-        __dsb();
+        data_synchronization_barrier();
     }
 
 
@@ -155,8 +139,8 @@ pub(crate) fn perform_download(uart: &UART1) {
 
     unsafe {
         relocate_stub(
-            staging::RelocationParams {
-                uw: &mut uw,
+            RelocationParams {
+                uw,
                 uart,
                 stub_dst: relocate_stub_to as usize as *mut u8,
                 prog_dst: relocate_prog_from as usize as *mut u8,
@@ -169,12 +153,10 @@ pub(crate) fn perform_download(uart: &UART1) {
 }
 
 unsafe fn relocate_stub(
-    params: staging::RelocationParams,
+    params: RelocationParams,
 ) -> ! {
     fn f(uart: &UART1) {
         uart1::uart1_write32(uart, BOOT_SUCCESS);
     }
-    staging::relocate_stub_inner(params, f)
+    relocate_stub_inner(params, f)
 }
-
-pub use fmt::legacy_print_string;

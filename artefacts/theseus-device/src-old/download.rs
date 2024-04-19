@@ -13,6 +13,7 @@ pub fn download(uart_write: &mut UartWrite, uart: &UART1, st: &SYSTMR) {
         SelectorResult::TheseusMessagePrecursor => {
             unsafe { IN_THESEUS = true };
             crate::theseus::perform_download(uart_write, uart, st);
+            unsafe { IN_THESEUS = false };
         }
     }
 }

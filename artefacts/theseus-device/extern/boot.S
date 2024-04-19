@@ -1,6 +1,6 @@
 @ vim:ft=arm
 @
-@ FILE artefacts/thalassa/extern/boot.S
+@ FILE artefacts/theseus-device/extern/boot.S
 @ DESC System entry point upon boot.
 @
 
@@ -82,10 +82,15 @@ _start:
 .avoid2:
 #endif
 
+#if 0
+loop$:
+    b loop$
+#else
     mov sp, #STACK_ADDR
     mov fp, #0
     bl EXTERN_KERNEL_FN
     bl EXTERN_REBOOT_FN
+#endif
 
 loc.gpio_base: .word 0x20200000
 loc.mark: .word 0x8020

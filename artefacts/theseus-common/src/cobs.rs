@@ -44,19 +44,21 @@ impl LineDecoder {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BufferedEncoder {
-    internal: [u8; 256],
+#[derive(Debug)]
+pub struct BufferedEncoder<'a> {
+    internal: &'a mut [u8],
 }
 
-impl BufferedEncoder {
-    pub fn new() -> Self {
-        Self {
-            internal: [0; 256],
-        }
+impl<'a> BufferedEncoder<'a> {
+    pub fn with_buffer(underlying_buffer: &'a mut [u8]) -> Option<Self> {
+        (underlying_buffer.len() == 254).then(|| Self {
+            internal: underlying_buffer,
+        })
     }
     pub fn packet(&mut self) -> PacketEncoder {
-        PacketEncoder::new(&mut self.internal)
+        PacketEncoder::with_buffer(self.internal)
+            // We guarantee that the buffer is of the correct length
+            .unwrap()
     }
 }
 
@@ -67,16 +69,16 @@ pub enum EncodeState<'a> {
 }
 
 pub struct PacketEncoder<'a> {
-    buf: &'a mut [u8; 256],
+    buf: &'a mut [u8],
     curs: usize,
 }
 
 impl<'a> PacketEncoder<'a> {
-    pub fn new(underlying_buffer: &'a mut [u8; 256]) -> Self {
-        Self {
+    pub fn with_buffer(underlying_buffer: &'a mut [u8]) -> Option<Self> {
+        (underlying_buffer.len() == 254).then(|| Self {
             buf: underlying_buffer,
             curs: 1,
-        }
+        })
     }
     pub fn add_byte(&mut self, x: u8) -> EncodeState {
         if self.curs == 254 {
