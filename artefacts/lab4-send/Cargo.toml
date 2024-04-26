@@ -1,0 +1,19 @@
+[package]
+name = "lab4-send"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[features]
+
+[dependencies]
+bcm2835-lpa = { version = "0.4.0", features = [] }
+postcard = { version = "1.0.8", features = [] }
+crc32fast = { version = "1.4.0", default-features = false, features = ["nightly"] }
+thiserror = { version = "1.0", package = "thiserror-core", default-features = false }
+enum_dispatch = { version = "0.3.13" }
+theseus-common = { path = "../theseus-common" }
+serde = { version = "1.0.197", default-features = false, features = ["derive"] }
+lab4-common = { path = "../lab4-common" }

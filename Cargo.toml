@@ -5,6 +5,8 @@ members = [
     "artefacts/theseus-common",
     "artefacts/theseus-device",
     "artefacts/theseus-upload",
-    "serialport-rs",
+    "artefacts/lab4-send",
+    "artefacts/lab4-recv",
+    "artefacts/lab4-common",
     "util/xor55",
 ]

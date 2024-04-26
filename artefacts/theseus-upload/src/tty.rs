@@ -7,10 +7,11 @@ use std::time::Duration;
 use color_eyre::{eyre, Result};
 use nix::{ioctl_read, ioctl_write_ptr_bad};
 use nix::poll::{PollFd, PollFlags};
-use nix::sys::signal::SigSet;
-use nix::sys::time::TimeSpec;
-use serialport::ClearBuffer;
-use crate::hexify::hexify;
+
+#[derive(Debug, Copy, Clone)]
+pub enum ClearBuffer {
+    Input, Output, All
+}
 
 pub struct TTY {
     fd: c_int,
@@ -428,7 +429,7 @@ impl TTY {
         // disable hardware flow control
         tios.c_cflag &= !(libc::CRTSCTS);
         // enable receiver & ignore modem control lines
-        tios.c_cflag |= (libc::CREAD | libc::CLOCAL);
+        tios.c_cflag |= libc::CREAD | libc::CLOCAL;
 
         // LOCAL MODES:
         //  c_lflag
@@ -473,8 +474,8 @@ impl TTY {
 
         let speed = baud as libc::speed_t;
 
-        let r = iossiospeed(self.fd, std::ptr::addr_of!(speed))?;
-        // eprintln!("iossiospeed returned: {r}");
+        // FIX: we end up needing to ignore errors from iossiospeed
+        let _ = iossiospeed(self.fd, std::ptr::addr_of!(speed))?;
         Ok(())
     }
 }

@@ -11,7 +11,7 @@ miniz_oxide = { version = "0.7.2" }
 color-eyre = "0.6.3"
 #nix = { version = "0.28.0", default-features = false, features = ["term", "ioctl"] }
 #serialport = { version = "4.3.0" }
-serialport = { path = "../../serialport-rs" }
+#serialport = { path = "../../serialport-rs" }
 log = "0.4.21"
 stderrlog = "0.6.0"
 postcard = { version = "1.0.8", features = ["use-std"] }

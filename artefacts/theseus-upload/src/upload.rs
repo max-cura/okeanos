@@ -1,7 +1,6 @@
 use std::io::{ErrorKind, Read};
 use std::time::Duration;
-use color_eyre::{eyre, Section as _};
-use serialport::{DataBits, FlowControl, Parity, StopBits, TTYPort};
+use color_eyre::eyre;
 use crate::args::Args;
 use crate::bin_name;
 use crate::find_tty::find_most_recent_tty_serial_device;

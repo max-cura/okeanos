@@ -103,7 +103,7 @@ impl<'a> PacketEncoder<'a> {
             EncodeStateInner::Pass => EncodeState::Pass
         }
     }
-    pub fn finish(mut self) -> &'a [u8] {
+    pub fn finish(self) -> &'a [u8] {
         let b = self.inner.finish();
         b.iter_mut().for_each(|x| *x ^= self.xor);
         &b[..]

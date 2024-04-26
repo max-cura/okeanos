@@ -3,7 +3,6 @@ use std::io::Write;
 use std::sync::mpsc::TryRecvError;
 use std::sync::{Mutex, OnceLock};
 use color_eyre::eyre;
-use serialport::TTYPort;
 use crate::args::Args;
 use crate::bin_name;
 use crate::io::RW32;

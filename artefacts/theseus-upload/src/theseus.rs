@@ -1,20 +1,17 @@
 use std::io::{ErrorKind, Read, Write};
 use std::process::exit;
 use std::time::{Duration, Instant};
-use serialport::{ClearBuffer, DataBits, FlowControl, Parity, SerialPort, StopBits, TTYPort};
 use crate::args::Args;
 
-use color_eyre::{eyre, Help, Result};
+use color_eyre::{eyre, Result};
 use color_eyre::eyre::WrapErr;
 use encode::HostEncode;
 
-use theseus_common::cobs::{BufferedEncoder, EncodeState, FeedState};
-use theseus_common::{INITIAL_BAUD_RATE, theseus as protocol};
+use theseus_common::cobs::FeedState;
 use theseus_common::theseus::handshake::{self, HandshakeMessageType};
 use theseus_common::theseus::handshake::device::AllowedConfigsHelper;
-use theseus_common::theseus::{MessageClass, MessageTypeType};
+use theseus_common::theseus::MessageTypeType;
 use crate::bin_name;
-use crate::find_tty::find_most_recent_tty_serial_device;
 use crate::hexify::hexify;
 use crate::io::RW32;
 use crate::tty::TTY;

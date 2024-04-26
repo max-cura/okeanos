@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 pub mod v1;
 pub mod handshake;
 pub mod len;

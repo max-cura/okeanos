@@ -8,3 +8,4 @@ doc/.obsidian
 *.bin
 *.elf
 serialport-rs
+bin

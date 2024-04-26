@@ -77,7 +77,7 @@ pub fn boot_init() {
     uprintln!(ser, "Done");
 
     // labs::lab1::lab1(&mut ser);
-    // labs::lab4::lab4(&mut ser, &peripherals.SPI0, &peripherals.GPIO);
+    // labs::lab4-send::lab4-send(&mut ser, &peripherals.SPI0, &peripherals.GPIO);
     labs::lab4::lab4(&mut ser, &peripherals.SYSTMR, &peripherals.PWM0, &peripherals.CM_PWM, &peripherals.GPIO);
 }
 

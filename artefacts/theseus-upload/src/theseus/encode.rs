@@ -1,6 +1,6 @@
 use theseus_common::{
     cobs::{BufferedEncoder, EncodeState},
-    theseus::{self, handshake, MessageClass},
+    theseus::{self, MessageClass},
 };
 
 pub trait HostEncode : serde::Serialize + MessageClass {

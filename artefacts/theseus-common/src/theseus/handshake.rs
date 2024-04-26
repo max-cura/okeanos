@@ -27,7 +27,6 @@ pub mod host {
 
 pub mod device {
     use serde::{Deserialize, Serialize};
-    use crate::theseus::handshake::MSG_ALLOWED_CONFIGS;
     use crate::theseus::{MessageClass, MessageTypeType};
 
     // opaque type (reason: alignment)

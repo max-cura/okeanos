@@ -1,21 +1,15 @@
-use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::process;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, TryLockError, TryLockResult};
-use serialport::{SerialPort, TTYPort};
+use std::sync::Arc;
 use crate::args::Args;
-
 use color_eyre::Result;
-use crossbeam_channel::{RecvError, TryRecvError};
 use indicatif::{ProgressBar, ProgressStyle};
-use serde::Deserialize;
 use theseus_common::cobs::{FeedState, LineDecoder};
 use theseus_common::INITIAL_BAUD_RATE;
-use theseus_common::theseus::{MessageClass, MessageTypeType, MSG_PRINT_STRING, v1};
+use theseus_common::theseus::{MessageTypeType, MSG_PRINT_STRING, v1};
 use theseus_common::theseus::v1::{device, host};
 use crate::hexify::hexify;
-use crate::io::RW32;
 use crate::theseus::encode::HostEncode;
 use crate::tty::TTY;
 
@@ -188,7 +182,7 @@ impl<'a> TTYDriver<'a> {
                                 log::error!("[host:v1]: Failed to write queued message: {e}");
                             }
                             if let Err(e) = self.tty.flush() {
-                                log::error!("[host:v1]: Failed to flush message");
+                                log::error!("[host:v1]: Failed to flush message: {e}");
                             }
                         }
                         Err(e) => {
@@ -453,12 +447,13 @@ pub fn run(
 
         stream.close.store(true, Ordering::SeqCst);
 
-        jh.join();
+        jh.join().unwrap();
 
         r
     });
 
-    tty.set_baud_rate(INITIAL_BAUD_RATE);
+    tty.set_baud_rate(INITIAL_BAUD_RATE)?;
+
     log::trace!("[host:v1]: Switching to echo mode");
 
     if !r {

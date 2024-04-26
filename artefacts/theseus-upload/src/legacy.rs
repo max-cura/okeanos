@@ -1,12 +1,11 @@
 use std::io::{self, ErrorKind, Read, Write};
 use std::process::exit;
 use color_eyre::{eyre, Section};
-use serialport::{ClearBuffer, SerialPort, TTYPort};
 use theseus_common::su_boot::Command;
 use crate::args::{Args, TraceLevel};
 use crate::bin_name;
 use crate::io::RW32;
-use crate::tty::TTY;
+use crate::tty::{ClearBuffer, TTY};
 
 
 struct Write32<'a> {
