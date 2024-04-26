@@ -1,7 +1,7 @@
 use crate::stub::{__theseus_prog_end__, _relocation_stub, _relocation_stub_end};
-use super::fmt::{UartWrite, boot_umsg};
 use super::uart1;
 use bcm2835_lpa::UART1;
+use crate::legacy_print_string_blocking;
 
 #[derive(Debug, Copy, Clone)]
 pub struct RelocationConfig {
@@ -90,7 +90,7 @@ pub enum Integrity {
 }
 
 pub(crate) fn verify_integrity(
-    uw: &mut UartWrite,
+    uart: &mut UART1,
     relocation_config: &RelocationConfig,
     crc: u32,
     len: usize,
@@ -98,14 +98,14 @@ pub(crate) fn verify_integrity(
     let mut hasher = crc32fast::Hasher::new();
 
     if relocation_config.relocate_first_n_bytes > 0 {
-        boot_umsg!(uw, "RFNB: checking {:#010x}:{}", relocation_config.side_buffer_location, relocation_config.relocate_first_n_bytes);
+        legacy_print_string_blocking!(uart, "RFNB: checking {:#010x}:{}", relocation_config.side_buffer_location, relocation_config.relocate_first_n_bytes);
         let side_buf = unsafe { core::slice::from_raw_parts(
             relocation_config.side_buffer_location as *const u8,
             relocation_config.relocate_first_n_bytes
         ) };
         hasher.update(side_buf);
     }
-    boot_umsg!(uw, "checking {:#010x}:{}",
+    legacy_print_string_blocking!(uart, "checking {:#010x}:{}",
         relocation_config.desired_location + relocation_config.relocate_first_n_bytes,
         len - relocation_config.relocate_first_n_bytes,
     );
@@ -125,8 +125,7 @@ pub(crate) fn verify_integrity(
     }}
 }
 
-pub struct RelocationParams<'a, 'b, 'c> {
-    pub uw: &'a mut UartWrite<'b>,
+pub struct RelocationParams<'c> {
     pub uart: &'c UART1,
     pub stub_dst: *mut u8,
     pub prog_dst: *mut u8,
@@ -140,21 +139,21 @@ pub unsafe fn relocate_stub_inner<F: FnOnce(&UART1)>(
     f: F
 ) -> ! {
     let RelocationParams {
-        uw, uart, stub_dst, prog_dst, prog_src, prog_len, entry
+        uart, stub_dst, prog_dst, prog_src, prog_len, entry
     } = params;
     let stub_begin = core::ptr::addr_of!(_relocation_stub);
     let stub_end = core::ptr::addr_of!(_relocation_stub_end);
 
     let stub_len = stub_end.offset_from(stub_begin) as usize;
 
-    boot_umsg!(uw, "[theseus-device]: relocation_stub parameters:");
-    boot_umsg!(uw, "\tstub_dst={stub_dst:#?}");
-    boot_umsg!(uw, "\tstub_loc={stub_begin:#?}");
-    boot_umsg!(uw, "\tstub_len={stub_len} bytes");
-    boot_umsg!(uw, "\tprog_dst={prog_dst:#?}");
-    boot_umsg!(uw, "\tprog_src={prog_src:#?}");
-    boot_umsg!(uw, "\tprog_len={prog_len} bytes");
-    boot_umsg!(uw, "\tentry={entry:#?}");
+    legacy_print_string_blocking!(uart, "[theseus-device]: relocation_stub parameters:");
+    legacy_print_string_blocking!(uart, "\tstub_dst={stub_dst:#?}");
+    legacy_print_string_blocking!(uart, "\tstub_loc={stub_begin:#?}");
+    legacy_print_string_blocking!(uart, "\tstub_len={stub_len} bytes");
+    legacy_print_string_blocking!(uart, "\tprog_dst={prog_dst:#?}");
+    legacy_print_string_blocking!(uart, "\tprog_src={prog_src:#?}");
+    legacy_print_string_blocking!(uart, "\tprog_len={prog_len} bytes");
+    legacy_print_string_blocking!(uart, "\tentry={entry:#?}");
 
     core::ptr::copy(
         stub_begin as *const u8,
@@ -162,7 +161,7 @@ pub unsafe fn relocate_stub_inner<F: FnOnce(&UART1)>(
         stub_len
     );
 
-    boot_umsg!(uw, "[theseus-device]: loaded relocation-stub, jumping to relocated stub.");
+    legacy_print_string_blocking!(uart, "[theseus-device]: loaded relocation-stub, jumping to relocated stub.");
 
     uart1::uart1_flush_tx(uart);
 
@@ -183,8 +182,8 @@ pub unsafe fn relocate_stub_inner<F: FnOnce(&UART1)>(
         options(noreturn),
     )
 
-    // boot_umsg!(uw, "[theseus-device]: ... well we should have jumped into the stub; I'm not really sure what just happened.");
-    // boot_umsg!(uw, "[theseus-device]: bad program state, entering infinite loop");
+    // boot_umsg!(uart, "[theseus-device]: ... well we should have jumped into the stub; I'm not really sure what just happened.");
+    // boot_umsg!(uart, "[theseus-device]: bad program state, entering infinite loop");
     //
     // // unreachable
     // loop {}

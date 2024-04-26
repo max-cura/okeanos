@@ -44,14 +44,7 @@ pub fn uart1_init(
         // however, we can just w.bits(0) to disable all interrupts so
         unsafe { w.bits(0) }
     });
-    uart.iir().modify(|_, w| {
-        // names are wrong - functionality on writing is different from
-        // functionality on read.
-        // writing 11 to bits 3:2 will clear both FIFOs
-        w
-            .tx_ready().set_bit()
-            .data_ready().set_bit()
-    });
+    __uart1_clear_fifos_unguarded(uart);
     uart.baud().write(|w| {
         unsafe { w.bits(clock_divider) }
     });
@@ -76,5 +69,68 @@ pub fn uart1_init(
             .rx_enable().set_bit()
     });
 
+    __dsb();
+}
+
+fn __uart1_flush_tx_unguarded(
+    uart: &UART1,
+) {
+    while uart.stat().read().tx_empty().bit_is_clear() {}
+}
+
+fn __uart1_clear_fifos_unguarded(uart: &UART1) {
+    // clear FIFOs
+    uart.iir().modify(|_, w| {
+        // names are wrong - functionality on writing is different from
+        // functionality on read.
+        // writing 11 to bits 3:2 will clear both FIFOs
+        w
+            .tx_ready().set_bit()
+            .data_ready().set_bit()
+    });
+}
+
+pub fn __uart1_clear_fifos(uart: &UART1) {
+    __dsb();
+    __uart1_clear_fifos_unguarded(uart);
+    __dsb();
+}
+
+pub fn __uart1_set_clock(
+    uart: &UART1,
+    new_divider: u16,
+) -> bool {
+    __dsb();
+    __uart1_flush_tx_unguarded(uart);
+    let old_clock_divider = uart.baud().read().bits();
+    uart.cntl().modify(|_, w| {
+        w
+            .tx_enable().clear_bit()
+            .rx_enable().clear_bit()
+    });
+    uart.baud().write(|w| {
+        unsafe { w.bits(new_divider) }
+    });
+    let succeeded = uart.baud().read().bits() == new_divider;
+    if !succeeded {
+        uart.baud().write(|w| {
+            unsafe { w.bits(old_clock_divider) }
+        })
+    }
+    let _ = uart.lsr().read().bits();
+    __uart1_clear_fifos_unguarded(uart);
+    uart.cntl().modify(|_, w| {
+        w
+            .tx_enable().set_bit()
+            .rx_enable().set_bit()
+    });
+    __dsb();
+    succeeded
+}
+
+pub fn __flush_tx(uart: &UART1) {
+    __dsb();
+    // actually for real tx_empty
+    while uart.stat().read().tx_empty().bit_is_clear() {}
     __dsb();
 }

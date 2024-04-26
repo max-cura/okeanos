@@ -6,15 +6,16 @@ use theseus_common::su_boot::Command;
 use crate::args::{Args, TraceLevel};
 use crate::bin_name;
 use crate::io::RW32;
+use crate::tty::TTY;
 
 
 struct Write32<'a> {
-    inner: &'a mut TTYPort,
+    inner: &'a mut TTY,
     trace_control: bool,
     trace_data: bool,
 }
 impl<'a> Write32<'a> {
-    pub fn new(inner: &'a mut TTYPort, tl: TraceLevel) -> Self {
+    pub fn new(inner: &'a mut TTY, tl: TraceLevel) -> Self {
         Self {
             inner,
             trace_control: tl != TraceLevel::Off,
@@ -29,15 +30,15 @@ impl<'a> Write32<'a> {
     }
 }
 
-fn with_write32<'a>(
-    tty: &'a mut TTYPort,
+fn with_write32(
+    tty: &mut TTY,
     tl: TraceLevel,
-    f: impl FnOnce(Write32<'a>) -> io::Result<()>
+    f: impl FnOnce(Write32) -> io::Result<()>
 ) -> io::Result<()> {
     f(Write32::new(tty, tl))
 }
 
-pub(crate) fn begin(args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
+pub(crate) fn begin(args: &Args, tty: &mut TTY) -> eyre::Result<()> {
     log::info!("[{}]: Using legacy SU-BOOT protocol", bin_name());
 
     if args.trace == TraceLevel::All {

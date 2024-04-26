@@ -6,20 +6,31 @@ pub const BAUD_ALIGNMENT_BYTE : u8 = 0x5f;
 
 pub mod host {
     use serde::{Deserialize, Serialize};
+    use crate::theseus::{MessageClass, MessageTypeType};
 
     #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
     pub struct Probe;
+
+    impl MessageClass for Probe {
+        const MSG_TYPE: MessageTypeType = super::MSG_PROBE;
+    }
 
     #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
     pub struct UseConfig {
         pub version: u16,
         pub baud: u32,
     }
+    impl MessageClass for UseConfig {
+        const MSG_TYPE: MessageTypeType = super::MSG_USE_CONFIG;
+    }
 }
 
 pub mod device {
     use serde::{Deserialize, Serialize};
+    use crate::theseus::handshake::MSG_ALLOWED_CONFIGS;
+    use crate::theseus::{MessageClass, MessageTypeType};
 
+    // opaque type (reason: alignment)
     #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
     pub struct AllowedConfigs<'a> {
         supported_versions: &'a [u8],
@@ -32,15 +43,34 @@ pub mod device {
             bauds: &'a [u32]
         ) -> Self {
             Self {
-                supported_versions: bytemuck::cast_slice(versions),
                 supported_bauds: bytemuck::cast_slice(bauds),
+                supported_versions: bytemuck::cast_slice(versions),
             }
         }
-        pub fn supported_versions(&self) -> &[u16] {
-            bytemuck::cast_slice(&self.supported_versions[..(self.supported_versions.len() % 2)])
-        }
-        pub fn supported_bauds(&self) -> &[u32] {
-            bytemuck::cast_slice(&self.supported_bauds[..(self.supported_bauds.len() % 4)])
+    }
+    impl<'a> MessageClass for AllowedConfigs<'a> {
+        const MSG_TYPE: MessageTypeType = super::MSG_ALLOWED_CONFIGS;
+    }
+
+    #[cfg(feature = "std")]
+    #[derive(Debug, Clone)]
+    pub struct AllowedConfigsHelper {
+        pub supported_versions: Vec<u16>,
+        pub supported_bauds: Vec<u32>,
+    }
+    #[cfg(feature = "std")]
+    impl<'a> From<AllowedConfigs<'a>> for AllowedConfigsHelper {
+        fn from(value: AllowedConfigs<'a>) -> Self {
+            let mut b1 = vec![0u16; value.supported_versions.len() / 2];
+            let mut b2 = vec![0u32; value.supported_bauds.len() / 4];
+            bytemuck::cast_slice_mut::<u16, u8>(&mut b1)
+                .copy_from_slice(value.supported_versions);
+            bytemuck::cast_slice_mut::<u32, u8>(&mut b2)
+                .copy_from_slice(value.supported_bauds);
+            AllowedConfigsHelper {
+                supported_versions: b1,
+                supported_bauds: b2,
+            }
         }
     }
 }
@@ -52,6 +82,10 @@ pub enum HandshakeMessageType {
     AllowedConfigs = 101,
     UseConfig = 102,
 }
+
+pub const MSG_PROBE : u32 = HandshakeMessageType::Probe.to_u32();
+pub const MSG_ALLOWED_CONFIGS : u32 = HandshakeMessageType::AllowedConfigs.to_u32();
+pub const MSG_USE_CONFIG : u32 = HandshakeMessageType::UseConfig.to_u32();
 
 impl HandshakeMessageType {
     pub const fn to_u32(self) -> u32 {

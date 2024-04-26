@@ -3,6 +3,7 @@ use std::io::ErrorKind;
 use std::process::exit;
 use serialport::TTYPort;
 use crate::bin_name;
+use crate::tty::TTY;
 
 fn pipe_error(e: &io::Error) {
     if e.kind() == ErrorKind::BrokenPipe {
@@ -30,3 +31,4 @@ pub trait RW32: io::Write + io::Read {
 }
 
 impl RW32 for TTYPort {}
+impl RW32 for TTY {}

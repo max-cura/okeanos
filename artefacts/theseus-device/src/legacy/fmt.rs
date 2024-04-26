@@ -88,7 +88,8 @@ impl<const N: usize> core::fmt::Write for TinyBuf<N> {
 
 pub static mut BOOT_UMSG_BUF : TinyBuf<0x4000> = TinyBuf::new();
 
-pub macro boot_umsg {
+#[macro_export]
+macro_rules! legacy_print_string_blocking {
     ($out:expr, $($arg:tt)*) => {
         {
             // let mut buf : $crate::fmt::TinyBuf<1000> = Default::default();
@@ -98,21 +99,19 @@ pub macro boot_umsg {
             //       and basically does what the Write impl for UartWrite is doing rn, except for
             //       the string as a whole and not the pieces of a string, which was kind of a head
             //       empty moment for me
+            #[allow(unused_imports)]
             use core::fmt::Write as _;
             {
-                let bub = unsafe { core::mem::transmute::<*mut TinyBuf<0x4000>, &mut TinyBuf<0x4000>>(
+                let mut tmp = $crate::legacy::fmt::UartWrite::new($out);
+                let bub = unsafe { core::mem::transmute::<
+                    *mut $crate::legacy::fmt::TinyBuf<0x4000>,
+                    &mut $crate::legacy::fmt::TinyBuf<0x4000>>(
                         core::ptr::addr_of_mut!($crate::legacy::fmt::BOOT_UMSG_BUF)) };
                 bub.clear();
                 let _ = ::core::write!(bub,$($arg)*);
-                let _ = $out.write_str(bub.as_str());
+                let _ = tmp.write_str(bub.as_str());
             }
             // let _ = ::core::write!($($arg)*);
         }
     }
-}
-
-pub macro legacy_print_string {
-($out:expr, $($arg:tt)*) => {
-    boot_umsg!($crate::legacy::fmt::UartWrite::new($out), $($arg)*)
-}
 }

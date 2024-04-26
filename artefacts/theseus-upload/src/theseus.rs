@@ -1,28 +1,43 @@
 use std::io::{ErrorKind, Read, Write};
 use std::process::exit;
 use std::time::{Duration, Instant};
-use serialport::TTYPort;
+use serialport::{ClearBuffer, DataBits, FlowControl, Parity, SerialPort, StopBits, TTYPort};
 use crate::args::Args;
 
-use color_eyre::{Result, eyre};
+use color_eyre::{eyre, Help, Result};
 use color_eyre::eyre::WrapErr;
+use encode::HostEncode;
 
-use theseus_common::cobs::{BufferedEncoder, EncodeState};
-use theseus_common::theseus as protocol;
+use theseus_common::cobs::{BufferedEncoder, EncodeState, FeedState};
+use theseus_common::{INITIAL_BAUD_RATE, theseus as protocol};
 use theseus_common::theseus::handshake::{self, HandshakeMessageType};
-use theseus_common::theseus::MessageTypeType;
+use theseus_common::theseus::handshake::device::AllowedConfigsHelper;
+use theseus_common::theseus::{MessageClass, MessageTypeType};
 use crate::bin_name;
+use crate::find_tty::find_most_recent_tty_serial_device;
+use crate::hexify::hexify;
 use crate::io::RW32;
+use crate::tty::TTY;
 
-static SUPPORTED_VERSIONS : &[u16] = &[0];
-static SUPPORTED_BAUDS : &[u32] = &[115200];
+pub mod v1;
+pub mod encode;
+
+impl HostEncode for handshake::host::Probe {}
+impl HostEncode for handshake::host::UseConfig {}
+
+static SUPPORTED_VERSIONS : &[u16] = &[1];
+static SUPPORTED_BAUDS : &[u32] = &[115200, 230400, 576000, 921600];
+
+// B1000000, B1152000, B1500000, B2000000, B2500000, B3000000, B3500000, B4000000, B460800,
+// B500000, B576000, B921600,
+
 
 pub fn determine_configuration(
-    allowed_configs: &handshake::device::AllowedConfigs,
+    allowed_configs: &AllowedConfigsHelper,
     _args: &Args,
 ) -> Option<handshake::host::UseConfig> {
-    let mut allowed_versions : Vec<u16> = allowed_configs.supported_versions().to_vec();
-    let mut allowed_bauds : Vec<u32> = allowed_configs.supported_bauds().to_vec();
+    let mut allowed_versions : Vec<u16> = allowed_configs.supported_versions.clone();
+    let mut allowed_bauds : Vec<u32> = allowed_configs.supported_bauds.clone();
     allowed_versions.sort();
     allowed_bauds.sort();
     let highest_supported_version = allowed_versions.iter().copied().rev().find(is_version_supported)?;
@@ -35,29 +50,39 @@ pub fn determine_configuration(
 }
 
 fn is_version_supported(&v: &u16) -> bool {
-    v == 1
+    SUPPORTED_VERSIONS.contains(&v)
 }
 
 fn is_baud_supported(&bd: &u32) -> bool {
-    bd == 115200
+    SUPPORTED_BAUDS.contains(&bd)
 }
 
-pub fn try_promote(args: &Args, tty: &mut TTYPort) -> Result<bool> {
+pub fn try_promote(args: &Args, tty: &mut TTY) -> Result<bool> {
     // no error, but handshake failed  (no response)
-    let Some(_config) = try_handshake(args, tty) else {
+    let Some(config) = try_handshake(args, tty) else {
         log::info!("[{}]: Handshake failed.", bin_name());
+        std::thread::sleep(Duration::from_millis(700));
         return Ok(false)
     };
+    log::info!("[host]: Settled on version {} at {}Bd", config.version, config.baud);
 
-    // TODO
-    Ok(false)
+    match config.version {
+        1 => {
+            v1::run(args, tty)?;
+        }
+        x => panic!("no such version: {x}"),
+    }
+
+    Ok(true)
 }
 
-pub fn try_handshake(args: &Args, tty: &mut TTYPort) -> Option<handshake::host::UseConfig> {
+pub fn try_handshake(args: &Args, tty: &mut TTY) -> Option<handshake::host::UseConfig> {
     if let Err(e) = send_message(handshake::host::Probe, tty) {
         log::error!("[host]: Failed to send probe: {e}");
         return None
     }
+
+    // log::trace!("[host]: Sent probe.");
 
     let msg = match recv_bytes_blocking_timeout(tty, Duration::from_millis(100)) {
         Ok(Some(msg)) => msg,
@@ -83,7 +108,7 @@ pub fn try_handshake(args: &Args, tty: &mut TTYPort) -> Option<handshake::host::
         return None
     }
     let (ac, rem) = match postcard::take_from_bytes::<handshake::device::AllowedConfigs>(frame_data) {
-        Ok(t) => t,
+        Ok(t) => (AllowedConfigsHelper::from(t.0), t.1),
         Err(e) => {
             log::error!("[host]: Failed to deserialize message: {e}");
             return None
@@ -93,93 +118,86 @@ pub fn try_handshake(args: &Args, tty: &mut TTYPort) -> Option<handshake::host::
         log::error!("[host]: Bytes remaining in buffer after deserializing AllowedConfigs");
         return None
     }
+    // log::trace!("[host]: AC={ac:?}");
     let Some(config) = determine_configuration(&ac, args) else {
         log::error!("[host]: No device-compatible version/baud configuration found");
         return None
     };
-
-    log::info!("[host]: Settled on version {} at {}baud", config.version, config.baud);
 
     if let Err(e) = send_message(config, tty) {
         log::error!("[host]: Failed to send UseConfig: {e}");
         return None
     }
 
+    // send seqeuences of 5f 5f 5f 5f  5f 5f 5f 5f every ~16 B interval for 4096 B of time
+    // until we receive 5f 5f 5f 5f  5f 5f 5f 5f of our own
+    // at which point we stop sending, clear the 5f's, switch the protocol on our end
+    // nvm we can totally just spin on our end until we receive something
+
+    // let device_path = args.device.clone()
+    //     .ok_or(())
+    //     .or_else(|_| find_most_recent_tty_serial_device())
+    //     .map_err(|e| eyre::eyre!("Unable to locate TTY device: {e}"))
+    //     .unwrap();
+    //
+    // *tty = serialport::new(
+    //     device_path.to_str().unwrap(),
+    //     config.baud
+    // )
+    //     .timeout(Duration::from_millis(100))
+    //     // 8n1, no flow control
+    //     .flow_control(FlowControl::None)
+    //     .data_bits(DataBits::Eight)
+    //     .parity(Parity::None)
+    //     .stop_bits(StopBits::One)
+    //     .open_native()
+    //     .with_note(|| format!("while trying to open {} in 8n1 with no flow control", device_path.display()))
+    //     .unwrap();
+    // log::info!("[host]: Reopened serial port");
+
+    if let Err(e) = tty.set_baud_rate(config.baud) {
+        log::error!("[host]: Failed to set baud rate: {e}");
+        return None
+    }
+
+    // tty.clear(ClearBuffer::All).unwrap();
+
     Some(config)
 }
 
-pub trait Encode : serde::Serialize {
-    fn msg_type(&self) -> u32;
-    fn encode(&self) -> Result<Vec<u8>> {
-        let buf = vec![];
-        let buf = postcard::to_extend(&self.msg_type(), buf)?;
-        let buf = postcard::to_extend(self, buf)?;
-        Ok(buf)
-    }
+fn send_message<T: HostEncode>(msg: T, tty: &mut TTY) -> Result<()> {
+    let frame = encode::frame_bytes(&msg.encode()?)?;
+    send_bytes(&frame, tty)?;
+    tty.flush()?;
+    Ok(())
 }
 
-impl Encode for handshake::host::Probe {
-    fn msg_type(&self) -> u32 {
-        HandshakeMessageType::Probe.to_u32()
-    }
+fn send_bytes(frame: &[u8], tty: &mut TTY) -> Result<()> {
+    log::trace!("[host] > {}", hexify(frame));
+
+    tty.write_all(frame)
+        .map_err(|e| eyre::eyre!("failed to send: {e}"))?;
+    tty.flush()?;
+    Ok(())
 }
 
-impl Encode for handshake::host::UseConfig {
-    fn msg_type(&self) -> u32 {
-        HandshakeMessageType::UseConfig.to_u32()
-    }
-}
-
-pub fn send_message<T: Encode>(msg: T, tty: &mut TTYPort) -> Result<()> {
-    send_bytes(&msg.encode()?, tty)
-}
-
-pub fn send_bytes(bytes: &[u8], tty: &mut TTYPort) -> Result<()> {
-    let mut frame = vec![];
-
-    frame.extend_from_slice(&protocol::PREAMBLE.to_le_bytes());
-
-    let bytes_crc = crc32fast::hash(bytes);
-
-    let cobs_frame = {
-        let mut cobs_frame = vec![];
-
-        let mut cobs_buffer = [0u8; 254];
-        let mut cobs_encoder = BufferedEncoder::with_buffer(&mut cobs_buffer).unwrap();
-        let mut packet = cobs_encoder.packet();
-        for &b in bytes.iter().chain(bytes_crc.to_le_bytes().iter()) {
-            match packet.add_byte(b) {
-                EncodeState::Buf(buf) => {
-                    cobs_frame.extend_from_slice(buf);
-                }
-                EncodeState::Pass => {}
-            }
-        }
-        cobs_frame.extend_from_slice(packet.finish());
-        cobs_frame.iter_mut().for_each(|b| *b = *b ^ 0x55);
-        cobs_frame
-    };
-
-    // LEB128
-    frame.extend_from_slice(postcard::to_stdvec(&(cobs_frame.len() as u32)).unwrap().as_slice());
-    frame.extend_from_slice(&cobs_frame);
-
-    tty.write_all(&frame)
-        .map_err(|e| eyre::eyre!("failed to send: {e}"))
-}
-
-pub fn recv_bytes_blocking_timeout(tty: &mut TTYPort, timeout: Duration) -> Result<Option<Vec<u8>>> {
+// PRINT_STRING: LEGACY
+pub fn recv_bytes_blocking_timeout(tty: &mut TTY, timeout: Duration) -> Result<Option<Vec<u8>>> {
     {
         let start = Instant::now();
         let mut state = 0;
+        // log::trace!("[host] begin blocking receive");
         loop {
             if start.elapsed() > timeout {
+                log::trace!("[host] receive timeout");
                 return Ok(None)
             }
             let byte = match tty.read8() {
                 Ok(b) => b,
                 Err(e) if e.kind() == ErrorKind::TimedOut => {
-                    return Ok(None)
+                    log::trace!("[host] read8 timeout");
+                    continue
+                    // return Ok(None)
                 }
                 Err(e) if e.kind() == ErrorKind::BrokenPipe => {
                     log::error!("[{}]: Device disconnected. Aborting.", bin_name());
@@ -187,59 +205,84 @@ pub fn recv_bytes_blocking_timeout(tty: &mut TTYPort, timeout: Duration) -> Resu
                 }
                 e @ Err(_) => e?
             };
+            // log::trace!("[host] BYTE < {byte:#04x}");
             state = match (state, byte) {
                 (0, 0x55) => 1,
                 (1, 0x55) => 2,
                 (2, 0x55) => 3,
                 (3, 0x5e) => break,
                 (3, 0x55) => 3,
+
+                (0, 0xee) => 5,
+                (5, 0xee) => 6,
+                (6, 0xdd) => 7,
+                (7, 0xdd) => {
+                    let len = tty.read32_le().unwrap_or(0);
+                    if len > 0 {
+                        let mut v = vec![0; len as usize];
+                        let _ = tty.read_exact(&mut v).inspect_err(|e| log::error!("PRINT_STRING read_exact failed: {e}"));
+                        // log::trace!("< {}", hexify(&v));
+                        log::info!("< {}", String::from_utf8_lossy(&v));
+                    }
+                    0
+                }
+
                 _ => 0,
             };
         }
     }
 
     let len = {
-        let mut len = 0u32;
+        let mut bytes = [0;4];
         for byte_no in 0..4 {
-            let x = tty.read8()
-                .with_context(|| if byte_no == 0 {
-                    "while waiting for FRAME.LEN"
-                } else {
-                    "while reading FRAME.LEN"
-                })?;
-            let x = x ^ 0x55;
-            if x == 0x00 {
-                eyre::bail!("expected LEB128 byte, got 00, len={len} byte_no={byte_no}");
-            }
-            len |= ((x & 0x7f) as u32) << (7 & (byte_no as u32));
-            if x & 0x80 == 0 {
-                break
-            } else if byte_no == 3 {
-                eyre::bail!("expected LEB128-encoded 28-bit unsigned integer; did not terminate when expected; got len={len} so far");
-            }
+            bytes[byte_no] = tty.read8()
+                .with_context(|| if byte_no == 0 { "while waiting for FRAME.LEN" } else { "while reading FRAME.LEN" })?;
+        }
+        let len = theseus_common::theseus::len::decode_len(&bytes);
+        if len < 4 {
+            eyre::bail!("expected frame length, got len<4, bytes: {bytes:?}");
         }
         len as usize
     };
 
-    let mut cobs_frame = vec![0; len];
-    tty.read_exact(cobs_frame.as_mut())
-        .with_context(|| "while waiting for FRAME.COBS_FRAME")?;
-    // undo XOR55
-    cobs_frame.iter_mut().for_each(|b| *b = *b ^ 0x55);
+    let cobs_frame = {
+        let mut cobs_frame = vec![0; len];
+        tty.read_exact(cobs_frame.as_mut())
+            .with_context(|| "while waiting for FRAME.COBS_FRAME")?;
+        // undo XOR55
+        cobs_frame.iter_mut().for_each(|b| *b = *b ^ 0x55);
+
+        // COBS DECODE
+        let mut line_decoder = theseus_common::cobs::LineDecoder::new();
+        let mut cooked = vec![];
+        for b in cobs_frame {
+            match line_decoder.feed(b) {
+                FeedState::PacketFinished => {}
+                FeedState::Byte(b) => { cooked.push(b) }
+                FeedState::Pass => {}
+            }
+        }
+        cooked
+    };
+
+    // log::trace!("frame: {}", hexify(&cobs_frame));
+
+    let cobs_len = cobs_frame.len();
+
     // check CRC
     let message_crc = {
-        let crc_bytes = &cobs_frame[(len - 4)..];
+        let crc_bytes = &cobs_frame[(cobs_len - 4)..];
         u32::from_le_bytes([
             crc_bytes[0],
             crc_bytes[1],
             crc_bytes[2],
             crc_bytes[3]])
     };
-    let calc_crc = crc32fast::hash(&cobs_frame[..(len-4)]);
+    let calc_crc = crc32fast::hash(&cobs_frame[..(cobs_len-4)]);
 
     if message_crc == calc_crc {
-        Ok(Some(cobs_frame[..(len-4)].to_vec()))
+        Ok(Some(cobs_frame[..(cobs_len-4)].to_vec()))
     } else {
-        eyre::bail!("CRC mismatch: message had checksum {message_crc}, host computed {calc_crc}");
+        eyre::bail!("CRC mismatch: message had checksum {message_crc}, host computed {calc_crc}, COBS frame: [{}]", hexify(&cobs_frame));
     }
 }

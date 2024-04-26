@@ -7,8 +7,9 @@ use serialport::TTYPort;
 use crate::args::Args;
 use crate::bin_name;
 use crate::io::RW32;
+use crate::tty::TTY;
 
-pub fn echo(_args: &Args, tty: &mut TTYPort) -> eyre::Result<()> {
+pub fn echo(_args: &Args, tty: &mut TTY) -> eyre::Result<()> {
     static ETERNAL_STDIN : OnceLock<Mutex<std::sync::mpsc::Receiver<String>>> = OnceLock::new();
     let rx = ETERNAL_STDIN.get_or_init(|| {
         let (tx, rx) = std::sync::mpsc::channel();

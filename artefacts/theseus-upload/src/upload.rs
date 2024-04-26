@@ -10,7 +10,9 @@ use theseus_common::{
     INITIAL_BAUD_RATE,
 };
 use crate::echo::echo;
+use crate::hexify::hexify;
 use crate::io::RW32;
+use crate::tty::TTY;
 
 pub fn protocol_begin(
     args: Args,
@@ -30,20 +32,23 @@ pub fn protocol_begin(
         .map_err(|e| eyre::eyre!("Unable to locate TTY device: {e}"))?;
     log::info!("[{}]: Using device {}", bin_name(), device_path.display());
 
-    let mut tty = serialport::new(
-        device_path.to_str().unwrap(),
-        INITIAL_BAUD_RATE
-    )
-        .timeout(Duration::from_millis(100))
-        // 8n1, no flow control
-        .flow_control(FlowControl::None)
-        .data_bits(DataBits::Eight)
-        .parity(Parity::None)
-        .stop_bits(StopBits::One)
-        .open_native()
-        .with_note(|| format!("while trying to open {} in 8n1 with no flow control", device_path.display()))?;
+    // let mut tty = serialport::new(
+    //     device_path.to_str().unwrap(),
+    //     INITIAL_BAUD_RATE
+    // )
+    //     .timeout(Duration::from_millis(100))
+    //     // 8n1, no flow control
+    //     .flow_control(FlowControl::None)
+    //     .data_bits(DataBits::Eight)
+    //     .parity(Parity::None)
+    //     .stop_bits(StopBits::One)
+    //     .open_native()
+    //     .with_note(|| format!("while trying to open {} in 8n1 with no flow control", device_path.display()))?;
+    let mut tty = TTY::new(device_path, INITIAL_BAUD_RATE)?;
+    tty.set_timeout(Duration::from_millis(100))?;
 
     let mut succeeded = false;
+    // for attempt_no in 1..=5 {
     for attempt_no in 1..=5 {
         log::info!("[{}]: Attempting ({attempt_no}/5) to promote protocol", bin_name());
 
@@ -63,7 +68,7 @@ pub fn protocol_begin(
 /// to SU-BOOT.
 fn state_initial(
     _args: &Args,
-    tty: &mut TTYPort
+    tty: &mut TTY
 ) {
     let mut status = 0;
     log::debug!("Waiting for GET_PROG_INFO");
@@ -94,6 +99,7 @@ fn state_initial(
                 if len > 0 {
                     let mut v = vec![0; len as usize];
                     let _ = tty.read_exact(&mut v);
+                    log::info!("[ {}", hexify(&v));
                     log::info!("< {}", String::from_utf8_lossy(&v));
                 }
             }

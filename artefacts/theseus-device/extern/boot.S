@@ -7,7 +7,8 @@
 #define SUPER_MODE 0b10011
 #define MODE_MASK 0b11111
 
-#define STACK_ADDR 0x8000000
+@ note that this is 0x0800 0000 not 0x8000 0000
+#define STACK_ADDR 0x08000000
 
 #define EXTERN_KERNEL_FN __theseus_init
 #define EXTERN_REBOOT_FN __theseus_reboot

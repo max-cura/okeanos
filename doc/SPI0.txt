@@ -1,5 +1,3 @@
-vim:tabstop=8
-
 SPI0
 - supports 3wire or 2wire
 
@@ -31,7 +29,7 @@ CS 7e20 4000
 				1=RXFIFO ??
 > ERRATA: unknown function ; possibly set bit when more than half full
 -- CLEAR by setting TA to 0
-	18	TXD		0=TXFIFO full 1=TXFIFO has space for >=1 byte	r	1
+	18	TXD		0=TXFIFO full 1=TXFIFO has >=1 byte		r	1
 	17	RXD		0=RXFIFO empty 1=RXFIFO has >=1 byte		r	0
 	16	DONE		0=transfer in progress (or not active TA=0)	r	0
 				1=transfer complete. clear by writing to TXFIFO

@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 pub const INITIAL_BAUD_RATE: u32 = 115200;
 

@@ -1,38 +1,49 @@
+use core::cell::Cell;
 use core::time::Duration;
-use bcm2835_lpa::{GPIO, Peripherals, SYSTMR};
-use embedded_io::ErrorType;
+use bcm2835_lpa::{Peripherals, SYSTMR};
 use thiserror::Error;
+use blinken::Blinken;
+use rxbuf::FrameDataBuffer;
 use theseus_common::cobs::FeedState;
+use theseus_common::theseus::MessageTypeType;
+use txbuf::TransmissionBuffer;
 use crate::arm1176::__dsb;
-use crate::{legacy, muart, timing};
+use crate::{legacy, legacy_print_string, muart, timing};
+use crate::reactor::handshake::Handshake;
+use crate::reactor::txbuf::FrameSink;
+use crate::timeouts;
 
-const INITIAL_BAUD_RATE : Baud = Baud::B115200;
+pub mod txbuf;
+pub mod handshake;
+mod v1;
+mod rxbuf;
+pub mod blinken;
+
+const INITIAL_BAUD_RATE : UartClock = UartClock::B115200;
 
 const RECEIVE_BUFFER_SIZE : usize = 0x10000;
 const TRANSMIT_BUFFER_SIZE : usize = 0x10000;
-const COBS_ENCODE_BUFFER_SIZE : usize = 254;
+const COBS_ENCODE_BUFFER_SIZE : usize = 255;
+const POSTCARD_ENCODE_BUFFER_SIZE : usize = 0x100;
 
 const fn align_addr4(x: usize) -> usize {
     (x + 3) & !3
 }
 
-fn initialize() -> Reactor {
+fn initialize() -> (Reactor, FrameSink) {
     let peripherals = unsafe { Peripherals::steal() };
 
     muart::uart1_init(
         &peripherals.GPIO,
         &peripherals.AUX,
         &peripherals.UART1,
-        270, // muart::baud_to_clock_divider(INITIAL_BAUD_RATE as u32),
+        INITIAL_BAUD_RATE.to_divider(),
     );
 
-    // TODO
-    legacy::legacy_print_string!(&peripherals.UART1, "[device]: reactor initialized");
     // legacy::fmt::boot_umsg!(uw, "[theseus-device]: performing timing test:");
     // legacy::fmt::boot_umsg!(uw, "[theseus-device]: 1000ms");
     // timing::delay_millis(&peripherals.SYSTMR, 1000);
     // legacy::fmt::boot_umsg!(uw, "[theseus-device]: done");
-
 
     let end_of_program = unsafe { core::ptr::addr_of!(super::stub::__theseus_prog_end__) } as usize;
     let buffer_space_start = align_addr4(end_of_program);
@@ -40,32 +51,45 @@ fn initialize() -> Reactor {
     let receive_buffer_addr = buffer_space_start;
     let transmit_buffer_addr = align_addr4(receive_buffer_addr + RECEIVE_BUFFER_SIZE);
     let cobs_buffer_addr = align_addr4(transmit_buffer_addr + TRANSMIT_BUFFER_SIZE);
-    let buffers_end_addr = align_addr4(cobs_buffer_addr + COBS_ENCODE_BUFFER_SIZE);
+    let postcard_encode_buffer_addr = align_addr4(cobs_buffer_addr + COBS_ENCODE_BUFFER_SIZE);
+    let buffers_end_addr = align_addr4(postcard_encode_buffer_addr + POSTCARD_ENCODE_BUFFER_SIZE);
 
     let receive_buffer_ptr = receive_buffer_addr as *mut u8;
     let transmit_buffer_ptr = transmit_buffer_addr as *mut u8;
     let cobs_buffer_ptr = cobs_buffer_addr as *mut u8;
+    let postcard_encode_buffer_ptr = postcard_encode_buffer_addr as *mut u8;
     let buffers_end_ptr = buffers_end_addr as *mut u8;
 
-    let sbl = StationaryBufferLayout {
+    let mut sbl = StationaryBufferLayout {
         receive_buffer: (receive_buffer_ptr, RECEIVE_BUFFER_SIZE),
         transmit_buffer: (transmit_buffer_ptr, TRANSMIT_BUFFER_SIZE),
         cobs_encode_buffer: cobs_buffer_ptr,
+        postcard_encode_buffer: (postcard_encode_buffer_ptr, POSTCARD_ENCODE_BUFFER_SIZE),
 
         __unsafe_stationary_buffers_end__: buffers_end_ptr,
         __unsafe_memory_ends__: (512 * 1024 * 1024) as *mut u8,
     };
 
-    fn constitute_buf(p: (*mut u8, usize)) -> &'static mut [u8] {
-        unsafe { core::slice::from_raw_parts_mut(p.0, p.1) }
-    }
+    let mut frame_sink = {
+        let tx_buffer = TransmissionBuffer::new(sbl.transmit_buffer());
+        let cobs_encoder = theseus_common::cobs::BufferedEncoder::with_buffer(
+            sbl.cobs_encode_buffer(),
+            0x55
+        ).unwrap();
+        let px_buffer = sbl.postcard_encode_buffer();
 
-    Reactor {
+        FrameSink::new(tx_buffer, cobs_encoder, px_buffer)
+    };
+
+    legacy_print_string!(frame_sink, "[device]: reactor initialized");
+    frame_sink._flush_to_fifo(&peripherals.UART1);
+    muart::__flush_tx(&peripherals.UART1);
+
+    (Reactor {
         peri: peripherals,
-        in_buf: constitute_buf(sbl.receive_buffer),
-        out_buf: constitute_buf(sbl.transmit_buffer),
         layout: sbl,
-    }
+        override_session_timeout: TakeCell::new(None)
+    }, frame_sink)
 }
 
 pub struct StationaryBufferLayout {
@@ -76,67 +100,131 @@ pub struct StationaryBufferLayout {
     transmit_buffer: (*mut u8, usize),
     /// Buffer used for COBS encoding. Must be >=254 bytes. Only the first 254 bytes will be used.
     cobs_encode_buffer: *mut u8,
-
+    /// Buffer used for Postcard marshaling.
+    postcard_encode_buffer: (*mut u8, usize),
 
     /// The byte after the last byte of the fixed locations buffers.
-    __unsafe_stationary_buffers_end__: *const  u8,
+    pub __unsafe_stationary_buffers_end__: *const  u8,
     /// The byte after the last byte of physical memory. Never dereference this.
-    __unsafe_memory_ends__: *const u8,
+    pub __unsafe_memory_ends__: *const u8,
+}
+
+impl StationaryBufferLayout {
+    pub fn receive_buffer(&mut self) -> &'static mut [u8] {
+        unsafe { core::slice::from_raw_parts_mut(self.receive_buffer.0, self.receive_buffer.1) }
+    }
+    pub fn transmit_buffer(&mut self) -> &'static mut [u8] {
+        unsafe { core::slice::from_raw_parts_mut(self.transmit_buffer.0, self.transmit_buffer.1) }
+    }
+    pub fn cobs_encode_buffer(&mut self) -> &'static mut [u8] {
+        unsafe { core::slice::from_raw_parts_mut(self.cobs_encode_buffer, COBS_ENCODE_BUFFER_SIZE) }
+    }
+    pub fn postcard_encode_buffer(&mut self) -> &'static mut [u8] {
+        unsafe { core::slice::from_raw_parts_mut(self.postcard_encode_buffer.0, self.postcard_encode_buffer.1) }
+    }
+}
+
+pub struct TakeCell<T> {
+    inner: Cell<Option<T>>,
+}
+
+impl<T> TakeCell<T> {
+    pub fn new(inner: T) -> Self {
+        Self { inner: Cell::new(Some(inner)) }
+    }
+    pub fn with<U, F>(&self, f: F) -> Option<U>
+        where F: FnOnce(&T) -> U,
+    {
+        let x = self.inner.replace(None);
+        let result = x.as_ref().map(f);
+        self.inner.set(x);
+        result
+    }
+    pub fn set(&self, t: T) {
+        self.inner.set(Some(t))
+    }
 }
 
 pub struct Reactor {
-    peri: Peripherals,
-    in_buf: &'static mut [u8],
-    out_buf: &'static mut [u8],
+    pub(crate) peri: Peripherals,
     layout: StationaryBufferLayout,
+
+    override_session_timeout: TakeCell<Option<Duration>>,
 }
 
-pub enum ReactorControl {
-    Continue,
-    Restart,
-}
-
-#[derive(Debug, Error, Copy, Clone)]
+#[derive(Debug, Error, Clone)]
+#[non_exhaustive]
 enum ReceiveError {
     #[error("incoming message overflowed receive buffer")]
     BufferOverflow,
     #[error("incoming message overran the FIFO")]
     FifoOverrun,
-    #[error("frame has declared length zero")]
-    ZeroLengthFrame,
     #[error("encountered TEL={total_encoded_length} bytes without packet terminating")]
     FrameOverflow { total_encoded_length: usize },
     #[error("legacy download encountered error and was unable to complete")]
     LegacyDownloadFailure,
+    #[error("packet ends after RBC={received_byte_count} bytes instead of TEL={total_encoded_length} bytes")]
+    FrameUnderflow { total_encoded_length: usize, received_byte_count: usize },
+    #[error("packet CRC mismatch: declared={declared_crc:#010x} computed={computed_crc:#010x}")]
+    CrcMismatch { declared_crc: u32, computed_crc: u32 },
+    #[error("deserialization error: {e}")]
+    Deserialize { e: postcard::Error },
+    #[error("declared frame size too small: {len}")]
+    FrameTooSmall { len: usize },
+    #[error("protocol error")]
+    Protocol,
 }
 
-#[derive(Debug, Copy, Clone)]
+impl ReceiveError {
+    pub fn intish(&self) -> u8 {
+        match self {
+            ReceiveError::BufferOverflow => 1,
+            ReceiveError::FifoOverrun => 2,
+            ReceiveError::FrameOverflow { .. } => 3,
+            ReceiveError::LegacyDownloadFailure => 4,
+            ReceiveError::FrameUnderflow { .. } => 5,
+            ReceiveError::CrcMismatch { .. } => 6,
+            ReceiveError::Deserialize { .. } => 7,
+            ReceiveError::FrameTooSmall { .. } => 8,
+            ReceiveError::Protocol => 9,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+#[repr(u8)]
 enum ReceiveState {
-    Waiting,
+    WaitingInitial = 1,
+    WaitingNext = 2,
 
     // we're just going to reuse the legacy-mode code from the previous iteration because I don't
     // care enough to port it to the new architecture
-    LegacyPutProgramInfo1,
-    LegacyPutProgramInfo2,
-    LegacyPutProgramInfo3,
+    LegacyPutProgramInfo1 = 3,
+    LegacyPutProgramInfo2 = 4,
+    LegacyPutProgramInfo3 = 5,
 
-    Preamble1,
-    Preamble2,
-    Preamble3,
-    FrameSize{
-        byte_no: usize,
-        size: u32,
-    },
+    Preamble1 = 6,
+    Preamble2 = 7,
+    Preamble3 = 8,
+
+    FrameSize0 = 9,
+    FrameSize1(u8) = 10,
+    FrameSize2(u8, u8) = 11,
+    FrameSize3(u8, u8, u8) = 12,
+    // {
+    //     byte_no: usize,
+    //     size: u32,
+    // },
     CobsFrame {
         total_encoded_length: usize,
         received_byte_count: usize,
-    },
+    } = 13,
 
     // Abcon
     Error {
         at_instant: timing::Instant,
         receive_error: Option<ReceiveError>
-    },
+    } = 14,
 }
 
 impl ReceiveState {
@@ -146,75 +234,48 @@ impl ReceiveState {
             receive_error: Some(receive_error),
         }
     }
-}
-
-pub mod timeouts {
-    use core::time::Duration;
-
-    #[derive(Debug, Copy, Clone)]
-    pub struct RateRelativeTimeout {
-        bytes: usize,
+    // copied from core::mem::discriminant's docs
+    fn discriminant(&self) -> u8 {
+        // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
+        // between `repr(C)` structs, each of which has the `u8` discriminant as its first
+        // field, so we can read the discriminant without offsetting the pointer.
+        unsafe { *<*const _>::from(self).cast::<u8>() }
     }
-    impl RateRelativeTimeout {
-        pub const fn from_bytes(n: usize) -> Self {
-            Self { bytes: n }
-        }
-        pub const fn at_baud_8n1(self, baud: u32) -> Duration {
-            // at 8n1, we have flat 80% efficiency; then we have 1 byte/10 bits
-            // so byte_rate = baud/10 B/s
-            // so time = bytes / byte_rate
-            // problem: byte_rate much higher than bytes; up to 3.125 MB/s
-            // we don't have floats (yet), so we get a bit awkward, since we're in units of
-            // microseconds; thus, we use fixed point on 10^6 and round up
-
-            let byte_rate = baud / 10;
-
-            let bytes_mega = (self.bytes * 1_000_000) as u32;
-            let microseconds = (bytes_mega + byte_rate - 1) / byte_rate;
-
-            Duration::from_micros(microseconds as u64)
-        }
-    }
-
-    pub const ERROR_RECOVERY : RateRelativeTimeout = RateRelativeTimeout::from_bytes(12);
-
-    pub const GET_PROG_INFO_INTERVAL : Duration = Duration::from_millis(300);
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct Timeouts {
     error_recovery: Duration,
+    byte_read: Duration,
+    session_expires: Duration,
 }
 impl Timeouts {
     pub fn initial() -> Self {
-        Self::new_8n1(INITIAL_BAUD_RATE as u32)
+        Self::new_8n1(INITIAL_BAUD_RATE.to_baud())
     }
     fn new_8n1(baud: u32) -> Timeouts {
         Self {
-            error_recovery: timeouts::ERROR_RECOVERY.at_baud_8n1(baud)
+            error_recovery: timeouts::ERROR_RECOVERY.at_baud_8n1(baud),
+            byte_read: timeouts::BYTE_READ.at_baud_8n1(baud),
+            session_expires: timeouts::SESSION_EXPIRES.at_baud_8n1(baud),
         }
     }
 }
 
 pub struct GetProgInfoSender {
-    should_send: bool,
     last_sent: timing::Instant,
 }
 
 impl GetProgInfoSender {
     pub fn new(st: &SYSTMR) -> Self {
         Self {
-            should_send: true,
             last_sent: timing::Instant::now(st),
         }
     }
-    pub fn set_sending(&mut self, should_send: bool) {
-        self.should_send = should_send;
-    }
-    pub(crate) fn try_send_gpi_if_applicable(&mut self, st: &SYSTMR, tb: &mut TransmissionBuffer) -> bool {
-        if self.last_sent.elapsed(st) >= timeouts::GET_PROG_INFO_INTERVAL {
+    pub(crate) fn try_send_gpi_if_applicable(&mut self, st: &SYSTMR, fs: &mut FrameSink) -> bool {
+        if self.last_sent.elapsed(st) >= timeouts::GET_PROG_INFO_INTERVAL && fs._buffer().is_empty() {
             static GET_PROG_INFO: &[u8] = &[0x22, 0x22, 0x11, 0x11];
-            tb.extend_from_slice(GET_PROG_INFO);
+            fs._buffer_mut().extend_from_slice(GET_PROG_INFO);
             self.last_sent = timing::Instant::now(st);
             true
         } else {
@@ -223,55 +284,69 @@ impl GetProgInfoSender {
     }
 }
 
-struct Blinken;
+#[derive(Debug)]
+pub enum ProtocolResult {
+    /// Continue parsing messages
+    Continue,
+    /// Abnormal condition, packet ignored
+    Abcon,
+    /// Abnormal condition, reset protocol state
+    Abend,
+    /// Self-explanatory. Should only be used by [`Handshake`]
+    __SwitchProtocol(ProtocolEnum)
+}
 
-impl Blinken {
-    pub fn init(gpio: &GPIO) -> Self {
-        __dsb();
-        gpio.gpfsel2().modify(|_, w| w.fsel27().output());
-        gpio.gpfsel4().modify(|_, w| w.fsel47().output());
-        __dsb();
-        Self
-    }
-    pub fn _27(&self, gpio: &GPIO, x: bool) {
-        __dsb();
-        if x {
-            unsafe { gpio.gpset0().write_with_zero(|w| w.set27().set_bit()) };
-        } else {
-            unsafe { gpio.gpclr0().write_with_zero(|w| w.clr27().clear_bit_by_one()) };
-        }
-        __dsb();
-    }
-    pub fn _47(&self, gpio: &GPIO, x: bool) {
-        __dsb();
-        if x {
-            unsafe { gpio.gpclr1().write_with_zero(|w| w.clr47().clear_bit_by_one()) };
-        } else {
-            unsafe { gpio.gpset1().write_with_zero(|w| w.set47().set_bit()) };
-        }
-        __dsb();
-    }
+use v1::V1;
+
+#[enum_dispatch::enum_dispatch]
+#[derive(Debug)]
+pub enum ProtocolEnum {
+    Handshake,
+    V1,
+}
+
+#[enum_dispatch::enum_dispatch(ProtocolEnum)]
+pub trait Protocol {
+    fn handle_packet(
+        &mut self,
+
+        mtt: MessageTypeType,
+        msg_data: &[u8],
+
+        reactor: &Reactor,
+        tx_buffer: &mut FrameSink,
+        timeouts: &mut Timeouts,
+    ) -> ProtocolResult;
+
+    fn heartbeat(
+        &mut self,
+
+        reactor: &Reactor,
+        tx_buffer: &mut FrameSink,
+        timeouts: &mut Timeouts,
+    ) -> ProtocolResult;
 }
 
 fn reaction_loop(
     mut rz: Reactor,
+    mut frame_sink: FrameSink,
 ) {
     let uart = &rz.peri.UART1;
-    let mut recv_state = ReceiveState::Waiting;
+
     // tx_buffer contains frames that are already COBS-encoded and ready to send.
-    let mut tx_buffer = TransmissionBuffer::new(rz.out_buf);
-    #[allow(unused_mut)] // todo remove
-    let mut _cobs_encoder = theseus_common::cobs::BufferedEncoder::with_buffer(
-        unsafe { core::slice::from_raw_parts_mut(rz.layout.cobs_encode_buffer, 254) }
-    ).unwrap();
-    let mut rx_buffer = FrameDataBuffer::new(rz.in_buf);
+    let mut rx_buffer = FrameDataBuffer::new(rz.layout.receive_buffer());
     let mut cobs_decoder = theseus_common::cobs::LineDecoder::new();
 
-    #[allow(unused_mut)] // todo remove
+    let blinken = Blinken::init(&rz.peri.GPIO);
+
     let mut timeouts = Timeouts::initial();
+    let mut last_byte = timing::Instant::now(&rz.peri.SYSTMR);
+    let mut last_packet = timing::Instant::now(&rz.peri.SYSTMR);
+    let mut protocol = ProtocolEnum::Handshake(Handshake::new());
+    let mut recv_state = ReceiveState::WaitingInitial;
     let mut gpi_sender = GetProgInfoSender::new(&rz.peri.SYSTMR);
 
-    let blinken = Blinken::init(&rz.peri.GPIO);
+    legacy_print_string!(frame_sink, "timeout configuration config: {timeouts:?}");
 
     loop {
         // Check if we should be transmitting anything, and if so fill the FIFO from the
@@ -284,370 +359,259 @@ fn reaction_loop(
         // - If we decoded the frame successfully, then flush the outgoing messages and then process
         //   the messages in the transmission queue, then run the appropriate action
 
-        gpi_sender.try_send_gpi_if_applicable(&rz.peri.SYSTMR, &mut tx_buffer);
-
-        __dsb();
-
         // -- DEBUG --
         let mut tx_did_send = false;
         // -- END DEBUG --
 
+        __dsb();
         let lsr = uart.lsr().read();
+        __dsb();
+
+        let can_read = lsr.data_ready().bit_is_set();
         // tx_empty() is a totally misleading name; really, it should really be named
         // 'tx_has_space_available'; note that this is LSR so destructive read.
-        if lsr.tx_empty().bit_is_set() {
-            if let Some(b) = tx_buffer.shift_byte() {
-                uart.io().write(|w| unsafe { w.data().bits(b) });
+        let can_write = lsr.tx_empty().bit_is_set();
+        let is_overrun = lsr.rx_overrun().bit_is_set();
+
+        if can_write {
+            if let Some(b) = frame_sink._buffer_mut().shift_byte() {
+                __dsb();
+                uart.io().write(|w| {
+                    unsafe { w.data().bits(b) }
+                });
+                __dsb();
+                // legacy_print_string_blocking!(uart, "[{b:#04x}:{}]", b.as_ascii().unwrap_or(core::ascii::Char::DollarSign).as_str());
                 tx_did_send = true;
             }
         }
 
         blinken._27(&rz.peri.GPIO, tx_did_send);
-        blinken._47(&rz.peri.GPIO, lsr.data_ready().bit_is_set());
+        blinken._47(&rz.peri.GPIO, can_read);
+        blinken._6(&rz.peri.GPIO, is_overrun);
+        // blinken._8(&rz.peri.GPIO, (timing::__floating_time(&rz.peri.SYSTMR) / 1_000_000) % 2 == 0);
 
-        // are we in read overrun? if so, it's a packet erro
-        if lsr.rx_overrun().bit_is_set() {
+        // are we in read overrun? if so, it's a packet error
+        if is_overrun {
             // consider this as a packet error
             recv_state = ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::FifoOverrun);
         }
-        if lsr.data_ready().bit_is_set() {
+        let byte = if can_read {
+            __dsb();
             let byte = uart.io().read().data().bits();
-
             __dsb();
 
-            legacy::legacy_print_string!(&rz.peri.UART1, "state: {recv_state:?}");
+            Some(byte)
+        } else {
+            None
+        };
 
-            recv_state = match (byte, recv_state) {
-                (0x44, ReceiveState::Waiting) => ReceiveState::LegacyPutProgramInfo1,
-                (0x44, ReceiveState::LegacyPutProgramInfo1) => ReceiveState::LegacyPutProgramInfo2,
-                (0x33, ReceiveState::LegacyPutProgramInfo2) => ReceiveState::LegacyPutProgramInfo3,
-                (0x33, ReceiveState::LegacyPutProgramInfo3) => {
-                    // handle legacy download
-                    legacy::perform_download(&rz.peri.UART1);
+        if matches!(recv_state, ReceiveState::WaitingInitial) {
+            gpi_sender.try_send_gpi_if_applicable(&rz.peri.SYSTMR, &mut frame_sink);
+        }
+        protocol.heartbeat(&rz, &mut frame_sink, &mut timeouts);
 
-                    // --- WARNING --- WARNING --- WARNING ---
-                    // if legacy::perform_download actually *returns*, then assume program state is
-                    // hopelessly corrupted and return so we can reinit
-                    return
+        // blinken.set(&rz.peri.GPIO, recv_state.discriminant());
+
+        recv_state = match (byte, recv_state) {
+            (Some(0x44), ReceiveState::WaitingInitial) => ReceiveState::LegacyPutProgramInfo1,
+            (Some(0x44), ReceiveState::LegacyPutProgramInfo1) => ReceiveState::LegacyPutProgramInfo2,
+            (Some(0x33), ReceiveState::LegacyPutProgramInfo2) => ReceiveState::LegacyPutProgramInfo3,
+            (Some(0x33), ReceiveState::LegacyPutProgramInfo3) => {
+                // legacy::legacy_print_string_blocking!(uart, "[device]: received PUT_PROG_INFO");
+
+                // handle legacy download
+                legacy::perform_download(&rz.peri.UART1);
+
+                // --- WARNING --- WARNING --- WARNING ---
+                // if legacy::perform_download actually *returns*, then assume program state is
+                // hopelessly corrupted and return so we can reinit
+
+                unreachable!();
+
+                // return
+            }
+
+            (Some(0x55), ReceiveState::WaitingInitial) => {
+                // legacy_print_string!(frame_sink, "[device]: caught 0x55 in WaitingInitial");
+                ReceiveState::Preamble1
+            }
+            (Some(0x55), ReceiveState::WaitingNext) => {
+                // legacy_print_string!(frame_sink, "[device]: caught 0x55 in WaitingNext");
+                ReceiveState::Preamble1
+            }
+            (Some(0x55), ReceiveState::Preamble1) => ReceiveState::Preamble2,
+            (Some(0x55), ReceiveState::Preamble2) => ReceiveState::Preamble3,
+            (Some(0x5e), ReceiveState::Preamble3) => ReceiveState::FrameSize0,
+            // Important! since it's 0x5555555e, we need to allow 0x55-slides in case of packet
+            // droppage
+            (Some(0x55), ReceiveState::Preamble3) => ReceiveState::Preamble3,
+
+            // PROTOCOL REVISION
+            (Some(x), ReceiveState::FrameSize0) => ReceiveState::FrameSize1(x),
+            (Some(x), ReceiveState::FrameSize1(b0)) => ReceiveState::FrameSize2(b0, x),
+            (Some(x), ReceiveState::FrameSize2(b0, b1)) => ReceiveState::FrameSize3(b0, b1, x),
+            (Some(x), ReceiveState::FrameSize3(b0, b1, b2)) => {
+                let len = theseus_common::theseus::len::decode_len(&[b0, b1, b2, x]);
+                if len < 4 {
+                    ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::FrameTooSmall { len: len as usize })
+                } else {
+                    cobs_decoder.reset();
+                    ReceiveState::CobsFrame { total_encoded_length: len as usize, received_byte_count: 0 }
                 }
+            }
 
-                (0x55, ReceiveState::Waiting) => ReceiveState::Preamble1,
-                (0x55, ReceiveState::Preamble1) => ReceiveState::Preamble2,
-                (0x55, ReceiveState::Preamble2) => ReceiveState::Preamble3,
-                (0x5e, ReceiveState::Preamble3) => ReceiveState::FrameSize { size: 0, byte_no: 0 },
-                // Important! since it's 0x5555555e, we need to allow 0x55-slides in case of packet
-                // droppage
-                (0x55, ReceiveState::Preamble3) => ReceiveState::Preamble3,
-                // Protocol: size is a LEB128-encoded u28, XOR'd with 0x55s on each byte.
-                // Is the size of the entire COBS frame, including the sentinel 0x55 at the end.
-                (x, ReceiveState::FrameSize { size, byte_no }) => {
-                    // COBS artefact
-                    let x = x ^ 0x55;
-                    // LEB128 decode - we maintain the 0x55 as SENTINEL by disallowing zero-length
-                    // packets
-                    if x == 0x00 {
-                        // error - zero length packet (not permitted)
-                        ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::ZeroLengthFrame)
-                    } else {
-                        let new_size = size | (((x & 0x7f) as u32) << (7 * (byte_no as u32)));
-                        if (x & 0x80) != 0 {
-                            ReceiveState::FrameSize { size: new_size, byte_no: byte_no + 1 }
-                        } else {
-                            ReceiveState::CobsFrame { total_encoded_length: new_size as usize, received_byte_count: 0 }
-                        }
-                    }
-                }
+            (Some(x), ReceiveState::CobsFrame {
+                total_encoded_length,
+                received_byte_count,
+            }) => {
+                // very important note! received_byte_count is actually 1 lower than it should be!
+                // so RBC>=TEL *actually* only triggers when the number of bytes received, *including this one*
+                // is STRICTLY GREATER than the TEL.
+                let res = if received_byte_count >= total_encoded_length {
+                    ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::FrameOverflow { total_encoded_length })
+                } else {
+                    let byte = x ^ 0x55;
+                    match cobs_decoder.feed(byte) {
+                        // NOTE: this loop should never run more than once
+                        FeedState::PacketFinished => 'packet: loop {
+                            // legacy_print_string!(frame_sink, "[device]: received packet");
+                            // blinken._5(&rz.peri.GPIO, true);
 
-                (x, ReceiveState::CobsFrame {
-                    total_encoded_length,
-                    received_byte_count,
-                }) => {
-                    if received_byte_count >= total_encoded_length {
-                        ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::FrameOverflow { total_encoded_length })
-                    } else {
-                        let byte = x ^ 0x55;
-                        match cobs_decoder.feed(byte) {
-                            FeedState::PacketFinished => {
-                                // okay done, time to process message
-                                todo!("process message");
-                                // ReceiveState::Waiting
+                            let packet = rx_buffer.finalize();
+
+                            if total_encoded_length != (received_byte_count + 1) {
+                                // frame shorter than declared
+                                break 'packet ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::FrameUnderflow { total_encoded_length, received_byte_count: received_byte_count + 1 })
                             }
-                            FeedState::Byte(y) => {
-                                match rx_buffer.push_byte(y) {
-                                    Ok(_) => ReceiveState::CobsFrame { total_encoded_length, received_byte_count: received_byte_count + 1 },
-                                    Err(e) => ReceiveState::error(&rz.peri.SYSTMR, e)
+                            // legacy_print_string!(frame_sink, "[device]: packet length ok");
+                            let crc_bytes: [u8; 4] = packet[packet.len()-4..].try_into().unwrap();
+                            let declared_crc = u32::from_le_bytes(crc_bytes);
+                            let data_frame_bytes = &packet[..packet.len()-4];
+                            let computed_crc = crc32fast::hash(data_frame_bytes);
+                            if declared_crc != computed_crc {
+                                break 'packet ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::CrcMismatch { declared_crc, computed_crc })
+                            }
+                            // legacy_print_string!(frame_sink, "[device]: packet CRCs okay");
+                            let (typ, data) = match postcard::take_from_bytes::<theseus_common::theseus::MessageTypeType>(data_frame_bytes) {
+                                Ok(x) => x,
+                                Err(e) => break 'packet ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::Deserialize { e }),
+                            };
+                            // legacy_print_string!(frame_sink, "[device]: packet is type {typ}");
+                            match protocol.handle_packet(typ, data, &rz, &mut frame_sink, &mut timeouts) {
+                                ProtocolResult::Continue => (),
+                                ProtocolResult::Abcon => break 'packet ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::Protocol),
+                                ProtocolResult::Abend => {
+                                    // reset protocol
+                                    protocol = ProtocolEnum::Handshake(Handshake::new());
+                                    break 'packet ReceiveState::error(&rz.peri.SYSTMR, ReceiveError::Protocol)
+                                }
+                                ProtocolResult::__SwitchProtocol(pe) => {
+                                    protocol = pe;
                                 }
                             }
-                            FeedState::Pass => {
-                                ReceiveState::CobsFrame { total_encoded_length, received_byte_count: received_byte_count + 1 }
+                            // Note: it's very important to make sure our timeouts are up-to-date to
+                            // prevent cutoff mechanisms from hitting at the wrong point.
+                            last_packet = timing::Instant::now(&rz.peri.SYSTMR);
+                            break 'packet ReceiveState::WaitingNext
+                        }
+                        FeedState::Byte(y) => {
+                            match rx_buffer.push_byte(y) {
+                                Ok(_) => ReceiveState::CobsFrame { total_encoded_length, received_byte_count: received_byte_count + 1 },
+                                Err(e) => ReceiveState::error(&rz.peri.SYSTMR, e)
                             }
                         }
-                    }
-                }
-
-                (x, e @ ReceiveState::Error {
-                    at_instant,
-                    receive_error
-                }) => {
-                    if let Some(receive_error) = receive_error {
-                        legacy::print_string!(tx_buffer, "[device]: receive error: {receive_error}");
-                    }
-                    // behaviour: wait for ERROR_RECOVERY_TIMEOUT
-                    if at_instant.elapsed(&rz.peri.SYSTMR) < timeouts.error_recovery {
-                        // perpetuate error state
-                        ReceiveState::Error {
-                            at_instant,
-                            receive_error: None
+                        FeedState::Pass => {
+                            ReceiveState::CobsFrame { total_encoded_length, received_byte_count: received_byte_count + 1 }
                         }
-                    } else {
-                        ReceiveState::Waiting
                     }
+                };
+                // if we're exiting the CobsFrame state, clear the receive buffer
+                if !matches!(res, ReceiveState::CobsFrame {..}) {
+                    rx_buffer.clear();
                 }
-
-                (x, _) => {
-                    ReceiveState::Waiting
-                }
-            };
-        }
-    }
-}
-
-/// Circular buffer with FIFO semantics. Overlong writes will be truncated.
-/// Only use on the Pi Zero (see source comments).
-///
-/// Please note that the [`embedded_io::Write`] implementation for this is rather funky, since this
-/// is a pure storage buffer, and we can't really block if something goes wrong since we can only
-/// make progress in the reactor loop.
-#[derive(Debug)]
-struct TransmissionBuffer {
-    underlying_storage: &'static mut [u8],
-    // circle_end == circle_begin && circle_len == 0 -> buffer empty
-    // circle_end == circle_begin && circle_len > 0 -> buffer full
-    circle_begin: usize,
-    circle_end: usize,
-    circle_len: usize,
-}
-
-impl TransmissionBuffer {
-    pub fn new(underlying_storage: &'static mut [u8]) -> Self {
-        Self {
-            underlying_storage,
-            circle_begin: 0,
-            circle_end: 0,
-            circle_len: 0,
-        }
-    }
-
-    pub fn shift_byte(&mut self) -> Option<u8> {
-        (self.circle_len > 0).then(|| {
-            let b = self.underlying_storage[self.circle_begin];
-            self.circle_begin += 1;
-            self.circle_len -= 1;
-            b
-        })
-    }
-
-    fn _push_byte_at_unchecked(&mut self, offset: usize, byte: u8) -> usize {
-        self.underlying_storage[offset] = byte;
-        if offset >= self.underlying_storage.len() { 0 } else { offset + 1}
-    }
-
-    fn _write_bytes_at_unchecked(&mut self, offset: usize, bytes: &[u8]) {
-        let mut cursor = offset;
-        for &byte in bytes.iter() {
-            cursor = self._push_byte_at_unchecked(cursor, byte);
-        }
-    }
-
-    pub fn push_byte(&mut self, byte: u8) -> bool {
-        if self.circle_len != 0 && self.circle_begin == self.circle_end {
-            // full
-            false
-        } else {
-            self.circle_end = self._push_byte_at_unchecked(self.circle_end, byte);
-            // self.underlying_storage[self.circle_end] = byte;
-            // self.circle_end += 1;
-            self.circle_len += 1;
-
-            true
-        }
-    }
-
-    fn wrapped_add(&self, a: usize, b: usize) -> (usize,bool) {
-        // check: i+j<self.underlying_buffer.len()
-        // ASSUME: i+j<usize::MAX since usize::MAX is more memory than we have on the Pi Zero
-        let i = (a + b) % self.underlying_storage.len();
-        (i, i < (a + b))
-    }
-
-    pub fn slide_to_slice(&mut self, target: &mut [u8]) -> bool {
-        if self.circle_len < target.len() {
-            // invalid: target is the wrong size, or we don't have enough bytes in our buffer to
-            // service the request.
-            false
-        } else {
-            let (end, end_wraps) = self.wrapped_add(self.circle_begin, self.circle_begin + target.len());
-            if !end_wraps {
-                target.copy_from_slice(&self.underlying_storage[self.circle_begin..end]);
-            } else {
-                target[..(self.underlying_storage.len() - self.circle_begin)]
-                    .copy_from_slice(&self.underlying_storage[self.circle_begin..]);
-                target[(self.underlying_storage.len() - self.circle_begin)..]
-                    .copy_from_slice(&self.underlying_storage[..end]);
+                res
             }
-            true
-        }
-    }
 
-    pub fn remaining_space(&self) -> usize {
-        self.underlying_storage.len() - self.circle_len
-    }
+            (_, ReceiveState::Error {
+                at_instant,
+                receive_error
+            }) => {
+                if let Some(receive_error) = receive_error {
+                    // blinken.set(&rz.peri.GPIO, receive_error.intish());
+                    legacy_print_string!(frame_sink, "[device]: receive error: {receive_error}");
+                    // legacy::legacy_print_string_blocking!(uart, "[device]: receive error: {receive_error}");
+                }
+                // behaviour: wait for ERROR_RECOVERY_TIMEOUT
+                if at_instant.elapsed(&rz.peri.SYSTMR) < timeouts.error_recovery {
+                    // perpetuate error state
+                    ReceiveState::Error {
+                        at_instant,
+                        receive_error: None
+                    }
+                } else {
+                    ReceiveState::WaitingNext
+                }
+            }
 
-    pub fn extend_from_slice(&mut self, src: &[u8]) -> bool {
-        if src.len() > self.underlying_storage.len()
-            || self.circle_len > (self.underlying_storage.len() - src.len())
-        {
-            return false
-        }
-        for &b in src.iter() {
-            self.push_byte(b);
-        }
+            (_, state) => {
+                let packet_elapsed = last_packet.elapsed(&rz.peri.SYSTMR);
+                let byte_elapsed = last_byte.elapsed(&rz.peri.SYSTMR);
 
-        true
-    }
-    pub fn reserve(&mut self, n_bytes: usize) -> Option<usize> {
-        (n_bytes > self.underlying_storage.len()
-            || self.circle_len > (self.underlying_storage.len() - n_bytes))
-            .then(|| {
-                let v = self.circle_end;
-                self.circle_end += 4;
-                v
-            })
-    }
+                let session_timeout = rz.override_session_timeout.with(|x| {
+                    x.clone()
+                }).flatten().unwrap_or(timeouts.session_expires);
+                //
+                // let session_timeout = match rz.override_session_timeout {
+                //     None => &timeouts.session_expires,
+                //     Some(d) => d,
+                // };
 
-    pub fn checkpoint(&self) -> TransmissionBufferCheckpoint {
-        TransmissionBufferCheckpoint {
-            circle_begin: self.circle_begin,
-            circle_end: self.circle_end,
-            circle_len: self.circle_len,
-        }
-    }
+                if packet_elapsed >= session_timeout //timeouts.session_expires
+                    && !matches!(state, ReceiveState::WaitingInitial)
+                    && byte_elapsed >= timeouts.byte_read
+                {
+                    last_packet = timing::Instant::now(&rz.peri.SYSTMR);
+                    // blinken._5(&rz.peri.GPIO, false);
+                    // Dump anything left in the transmission buffer onto the FIFOs and then reset
+                    // the clock rate. Note that __uart1_set_clock we flush the FIFOS out, as well.
+                    legacy_print_string!(frame_sink, "[device]: session expired after {packet_elapsed:?}, dumping.");
+                    frame_sink._flush_to_fifo(&rz.peri.UART1);
+                    // reset clock speed
+                    muart::__uart1_set_clock(&rz.peri.UART1, INITIAL_BAUD_RATE.to_divider());
+                    timeouts = Timeouts::new_8n1(INITIAL_BAUD_RATE.to_baud());
+                    rz.override_session_timeout.set(None);
+                    // Reset protocol to initial state.
+                    protocol = ProtocolEnum::Handshake(Handshake::new());
 
-    pub fn bytes_since_checkpoint(&self, cp: TransmissionBufferCheckpoint) -> usize {
-        let cp_end = cp.circle_end;
-        if self.circle_end < cp_end {
-            (self.underlying_storage.len() - cp_end) + cp_end
-        } else {
-            self.circle_end - cp_end
-        }
-    }
-
-    pub fn restore(&mut self, from: TransmissionBufferCheckpoint) {
-        let TransmissionBufferCheckpoint {
-            circle_begin, circle_end, circle_len
-        } = from;
-        self.circle_begin = circle_begin;
-        self.circle_end = circle_end;
-        self.circle_len = circle_len;
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-struct TransmissionBufferCheckpoint {
-    circle_begin: usize,
-    circle_end: usize,
-    circle_len: usize,
-}
-
-impl LegacyPrintStringWriter for TransmissionBuffer {
-    fn writer(&mut self) -> TxWriter {
-        TxWriter::new(self)
-    }
-}
-pub trait LegacyPrintStringWriter {
-    fn writer(&mut self) -> TxWriter;
-}
-
-pub struct TxWriter<'a> {
-    transmission_buffer: &'a mut TransmissionBuffer,
-    checkpoint: TransmissionBufferCheckpoint,
-    len_offset: usize,
-    ok: bool
-}
-impl<'a> TxWriter<'a> {
-    pub fn new(transmission_buffer: &'a mut TransmissionBuffer) -> Self {
-        let checkpoint = transmission_buffer.checkpoint();
-        static PRINT_STRING : &[u8; 4] = &[0xee, 0xee, 0xdd, 0xdd];
-        let mut ok = transmission_buffer.extend_from_slice(PRINT_STRING);
-        let len_offset = if ok {
-            let len_offset = transmission_buffer.reserve(4);
-            ok = len_offset.is_some();
-            len_offset.unwrap()
-        } else {
-            0
+                    ReceiveState::WaitingInitial
+                } else if byte_elapsed >= timeouts.byte_read
+                    && !matches!(state, ReceiveState::WaitingInitial)
+                {
+                    // legacy_print_string!(frame_sink, "[device]: packet read timeout in state {} after {byte_elapsed:?}, ignoring", state.discriminant());
+                    last_byte = timing::Instant::now(&rz.peri.SYSTMR);
+                    ReceiveState::WaitingNext
+                } else {
+                    state
+                }
+            }
         };
-        Self { transmission_buffer, checkpoint, len_offset, ok }
-    }
-    pub fn finalize(self) -> bool {
-        if !self.ok {
-            self.transmission_buffer.restore(self.checkpoint)
-        } else {
-            self.transmission_buffer._write_bytes_at_unchecked(
-                self.len_offset,
-                &(self.transmission_buffer.bytes_since_checkpoint(self.checkpoint) as u32)
-                    .to_le_bytes()
-            );
-        }
-        self.ok
-    }
-}
-impl<'a> core::fmt::Write for TxWriter<'a> {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        if self.ok {
-            self.ok = self.transmission_buffer.extend_from_slice(s.as_bytes());
-        }
-        Ok(())
-    }
-}
 
-impl ErrorType for TransmissionBuffer {
-    type Error = embedded_io::ErrorKind;
-}
-
-/// Receive buffer with the data from a COBS frame.
-struct FrameDataBuffer {
-    underlying_storage: &'static mut [u8],
-    cursor: usize,
-}
-
-impl FrameDataBuffer {
-    pub fn new(underlying_storage: &'static mut [u8]) -> Self {
-        Self { underlying_storage, cursor: 0 }
-    }
-    pub fn push_byte(&mut self, b: u8) -> Result<(), ReceiveError> {
-        if self.cursor >= self.underlying_storage.len() {
-            // that's not great
-            return Err(ReceiveError::BufferOverflow);
+        // note: want to time last_byte from the end of the previous operation
+        if byte.is_some() {
+            last_byte = timing::Instant::now(&rz.peri.SYSTMR);
+            // legacy::legacy_print_string_blocking!(uart, "[device]: got byte {} in state {recv_state:?}", byte.as_ref().copied().unwrap());
         }
-        self.underlying_storage[self.cursor] = b;
-        self.cursor += 1;
-        Ok(())
-    }
-    pub fn finalize(&mut self) -> &mut [u8] {
-        let end = self.cursor;
-        self.cursor = 0;
-        &mut self.underlying_storage[..end]
     }
 }
 
 
 pub fn run() {
-    let rz = initialize();
-    reaction_loop(rz);
+    let (rz, frame_sink) = initialize();
+    reaction_loop(rz, frame_sink);
 }
 
-#[repr(u32)]
-pub enum Baud {
+#[derive(Debug, Copy, Clone)]
+pub enum UartClock {
     /// 115200Bd
     B115200 = 270,  // 115313
 
@@ -662,4 +626,17 @@ pub enum Baud {
     // B2000000 = 14,  // 2083333
     // B2500000 = 11,  // 2604166
     // B3000000 = 9, // 3125000
+}
+
+impl UartClock {
+    pub fn to_baud(self) -> u32 {
+        match self {
+            UartClock::B115200 => 115200,
+        }
+    }
+    pub fn to_divider(self) -> u16 {
+        match self {
+            UartClock::B115200 => 270,
+        }
+    }
 }

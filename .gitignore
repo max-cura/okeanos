@@ -5,3 +5,6 @@ target
 build/*/*
 doc/.obsidian
 .DS_Store
+*.bin
+*.elf
+serialport-rs

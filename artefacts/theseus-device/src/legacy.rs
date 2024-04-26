@@ -2,36 +2,22 @@ pub(crate) mod fmt;
 mod uart1;
 mod staging;
 
-pub macro print_string {
-    ($w:expr, $($s:tt)*) => {
-        // $w is expected to be transmission buffer
-        use core::fmt::Write as _;
-        use super::reactor::LegacyPrintStringWriter as _;
-        let _ = core::write!(
-            $w.writer(),
-            $($s)*
-        );
-    }
-}
-
 use bcm2835_lpa::UART1;
-use fmt::{UartWrite, boot_umsg};
 use crate::arm1176::__dsb;
+use crate::legacy_print_string_blocking;
 
 const GET_CODE : u32 = theseus_common::su_boot::Command::GetCode as u32;
 const BOOT_SUCCESS : u32 = theseus_common::su_boot::Command::BootSuccess as u32;
 const BOOT_ERROR : u32 = theseus_common::su_boot::Command::BootError as u32;
 
-pub(crate) fn perform_download(uart: &UART1) {
-    let mut uw = UartWrite::new(uart);
-
+pub fn perform_download(uart: &UART1) {
     // okay, so we just received PUT_PROGRAM_INFO
     let addr = uart1::uart1_read32_blocking(uart);
     let len = uart1::uart1_read32_blocking(uart);
     let crc = uart1::uart1_read32_blocking(uart);
 
-    boot_umsg!(uw, "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode.");
-    boot_umsg!(uw, "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}");
+    legacy_print_string_blocking!(uart, "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode.");
+    legacy_print_string_blocking!(uart, "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}");
 
     // TODO: where exactly does the stack start again???
     // stack starts at 0x8000 and goes downwards, so assume [0..&__theseus_prog_end__] is all theseus-device
@@ -48,15 +34,15 @@ pub(crate) fn perform_download(uart: &UART1) {
     };
     let relocate_stub_to = relocate_prog_to + relocate_prog_len;
 
-    boot_umsg!(uw, "[theseus-device]: relocation configuration:");
-    boot_umsg!(uw, "\tRelocate: {}", if relocate { "yes" } else { "no "});
+    legacy_print_string_blocking!(uart, "[theseus-device]: relocation configuration:");
+    legacy_print_string_blocking!(uart, "\tRelocate: {}", if relocate { "yes" } else { "no "});
     if relocate {
-        boot_umsg!(uw, "\tTarget: [{:#010x}..{:#010x}] to [{:#010x}..{:#010x}]",
+        legacy_print_string_blocking!(uart, "\tTarget: [{:#010x}..{:#010x}] to [{:#010x}..{:#010x}]",
             relocate_prog_from, relocate_prog_from+relocate_prog_len,
             relocate_prog_to, relocate_prog_to+relocate_prog_len);
-        boot_umsg!(uw, "\tStub: [{:#010x}]",
+        legacy_print_string_blocking!(uart, "\tStub: [{:#010x}]",
             relocate_stub_to);
-        boot_umsg!(uw, "\tSize: {}/{} KiB",
+        legacy_print_string_blocking!(uart, "\tSize: {}/{} KiB",
             (relocate_prog_len + 1023) / 1024, (len + 1023) / 1024);
     }
 
@@ -144,10 +130,10 @@ pub(crate) fn perform_download(uart: &UART1) {
     };
 
     let crc_ok = verify_crc32 == crc;
-    boot_umsg!(uw, "[theseus-device]: received program, calculated CRC32 is {:#010x}, expected {:#010x}: {}", verify_crc32, crc, if crc_ok { "ok" } else { "mismatch" });
+    legacy_print_string_blocking!(uart, "[theseus-device]: received program, calculated CRC32 is {:#010x}, expected {:#010x}: {}", verify_crc32, crc, if crc_ok { "ok" } else { "mismatch" });
 
     if !crc_ok {
-        boot_umsg!(uw, "[theseus-device]: fatal CRC mismatch, rebooting");
+        legacy_print_string_blocking!(uart, "[theseus-device]: fatal CRC mismatch, rebooting");
         uart1::uart1_write32(uart, BOOT_ERROR);
 
         return
@@ -156,7 +142,6 @@ pub(crate) fn perform_download(uart: &UART1) {
     unsafe {
         relocate_stub(
             staging::RelocationParams {
-                uw: &mut uw,
                 uart,
                 stub_dst: relocate_stub_to as usize as *mut u8,
                 prog_dst: relocate_prog_from as usize as *mut u8,
@@ -176,5 +161,3 @@ unsafe fn relocate_stub(
     }
     staging::relocate_stub_inner(params, f)
 }
-
-pub use fmt::legacy_print_string;

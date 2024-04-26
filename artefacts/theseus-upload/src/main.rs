@@ -8,6 +8,8 @@ pub mod legacy;
 pub mod theseus;
 pub mod echo;
 pub mod io;
+mod hexify;
+mod tty;
 
 use std::ffi::OsStr;
 use std::process::exit;
