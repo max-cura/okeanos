@@ -341,6 +341,8 @@ impl TTY {
 
         let mut tios = tios_fake.assume_init();
 
+        println!("{tios:?}");
+
         // Noncanonical mode:
         //  input bytes are not assembled into lines, and erase and kill processing does not occur.
         // Writing data and output processing:
@@ -451,13 +453,17 @@ impl TTY {
         //      NOFLSH  = don't flush after interrupt
         tios.c_lflag = 0; // disable all local modes
 
-
         // mode: MIN=0 TIME=0:
         //  minimum of either the number of bytes requested or the number of bytes currently
         //  available is returned without waiting for more bytes to be input. If no characters are
         //  available, read returns a value of zero, having read no data.
         tios.c_cc[libc::VMIN] = 0;
         tios.c_cc[libc::VTIME] = 0;
+
+        // FIX: for higher speeds, tcsetattr will EINVAL if it gets ispeed/ospeed out of the
+        // permitted range; these values are arbitrary, we will rewrite them later
+        tios.c_ospeed = libc::B115200;
+        tios.c_ispeed = libc::B115200;
 
         let r = libc::tcsetattr(
             self.fd,
@@ -469,7 +475,8 @@ impl TTY {
             std::ptr::addr_of!(tios),
         );
         if r != 0 {
-            eyre::bail!("failed to tcsetattr: error={r}");
+            eyre::bail!("failed to tcsetattr: error={}",
+                nix::errno::Errno::last());
         }
 
         let speed = baud as libc::speed_t;

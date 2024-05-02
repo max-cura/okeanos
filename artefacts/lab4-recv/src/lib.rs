@@ -8,15 +8,15 @@
 #![feature(ascii_char_variants)]
 #![no_std]
 
+use core::fmt::Write;
 use bcm2835_lpa::Peripherals;
+use lab4_common::arm1176::__dsb;
+use lab4_common::{muart, sendln_blocking, Uart};
 use reactor::blinken;
 
 pub mod stub;
 
-pub mod legacy;
-
 mod reactor;
-mod timeouts;
 
 #[no_mangle]
 pub extern "C" fn __theseus_init() {
@@ -44,31 +44,21 @@ fn panic(info: &::core::panic::PanicInfo) -> ! {
     blinken._47(&peri.GPIO, true);
 
     // muart::uart1_init(&peri.GPIO, &peri.AUX, &peri.UART1, 270);
+    // muart::uart1_init(&peri.GPIO, &peri.AUX, &peri.UART1, 270);
 
     if let Some(loc) = info.location() {
-        legacy_print_string_blocking!(&peri.UART1, "[device]: Panic occurred at file '{}' line {}:", loc.file(), loc.line());
+        sendln_blocking!("[device]: Panic occurred at file '{}' line {}:", loc.file(), loc.line());
     } else {
-        legacy_print_string_blocking!(&peri.UART1, "[device]: Panic occurred at [unknown location]");
+        sendln_blocking!("[device]: Panic occurred at [unknown location]");
     }
     if let Some(msg) = info.message() {
-        use core::fmt::Write as _;
-        let bub = unsafe {
-            core::mem::transmute::<
-                *mut legacy::fmt::TinyBuf<0x4000>,
-                &mut legacy::fmt::TinyBuf<0x4000>
-            >(core::ptr::addr_of_mut!(legacy::fmt::BOOT_UMSG_BUF))
-        };
-        bub.clear();
-        if core::fmt::write(bub, *msg).is_err() {
-            legacy_print_string_blocking!(&peri.UART1, "[device]: [failed to write message to format buffer]");
-        }
-        if legacy::fmt::UartWrite::new(&peri.UART1).write_str(bub.as_str()).is_err() {
-            legacy_print_string_blocking!(&peri.UART1, "[device]: [failed to write message to uart]");
+        if Uart.write_fmt(*msg).is_err() {
+            sendln_blocking!("[device]: [failed to write message to UART]");
         }
     } else {
-        legacy_print_string_blocking!(&peri.UART1, "[device]: [no message]");
+        sendln_blocking!("[device]: [no message]");
     }
-    legacy_print_string_blocking!(&peri.UART1, "[device]: rebooting.");
+    sendln_blocking!("[device]: rebooting.");
 
     __theseus_reboot()
 }

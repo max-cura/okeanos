@@ -1,10 +1,10 @@
 lab1:
-- ???
-lab2 waiting
+- (need to do)
+lab2 waiting for remotes
 lab3:
-- juts boot over IR
+- boot over IR
 lab4: **done**
 lab5:
-- ???
-
-
+- (need to do)
+lab6:
+- some kind of garbage collection

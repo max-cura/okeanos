@@ -1,16 +1,34 @@
 use bcm2835_lpa::GPIO;
-use crate::arm1176::__dsb;
+use lab4_common::arm1176::__dsb;
 
 pub struct Blinken;
 
 impl Blinken {
     pub fn init(gpio: &GPIO) -> Self {
         __dsb();
-        gpio.gpfsel0().modify(|_, w| w.fsel6().output().fsel8().output());
+        gpio.gpfsel0().modify(|_, w| w.fsel3().output().fsel4().output().fsel6().output().fsel8().output());
         gpio.gpfsel2().modify(|_, w| w.fsel27().output());
         gpio.gpfsel4().modify(|_, w| w.fsel47().output());
         __dsb();
         Self
+    }
+    pub fn _4(&self, gpio: &GPIO, x: bool) {
+        __dsb();
+        if x {
+            unsafe { gpio.gpset0().write_with_zero(|w| w.set4().set_bit()) };
+        } else {
+            unsafe { gpio.gpclr0().write_with_zero(|w| w.clr4().clear_bit_by_one()) };
+        }
+        __dsb();
+    }
+    pub fn _3(&self, gpio: &GPIO, x: bool) {
+        __dsb();
+        if x {
+            unsafe { gpio.gpset0().write_with_zero(|w| w.set3().set_bit()) };
+        } else {
+            unsafe { gpio.gpclr0().write_with_zero(|w| w.clr3().clear_bit_by_one()) };
+        }
+        __dsb();
     }
     // pub fn _5(&self, gpio: &GPIO, x: bool) {
     //     __dsb();

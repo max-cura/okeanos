@@ -23,12 +23,18 @@ pub fn __floating_time(st: &SYSTMR) -> u64 {
 pub struct Instant {
     floating_micros: u64,
 }
+
 impl Instant {
     pub fn now(st: &SYSTMR) -> Self { Self { floating_micros: __floating_time(st) } }
     pub fn elapsed(&self, st: &SYSTMR) -> Duration {
         let current_time = __floating_time(st);
         Duration::from_micros(
             current_time.wrapping_sub(self.floating_micros)
+        )
+    }
+    pub fn elapsed_to(&self, current_time: Instant) -> Duration {
+        Duration::from_micros(
+            current_time.floating_micros.wrapping_sub(self.floating_micros)
         )
     }
 }

@@ -387,6 +387,8 @@ fn reaction_loop(
             }
         }
 
+        // blinken._4(&rz.peri.GPIO, tx_did_send);
+        // blinken._3(&rz.peri.GPIO, can_read);
         blinken._27(&rz.peri.GPIO, tx_did_send);
         blinken._47(&rz.peri.GPIO, can_read);
         blinken._6(&rz.peri.GPIO, is_overrun);

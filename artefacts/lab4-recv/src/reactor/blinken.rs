@@ -1,5 +1,5 @@
 use bcm2835_lpa::GPIO;
-use crate::arm1176::__dsb;
+use lab4_common::arm1176::__dsb;
 
 pub struct Blinken;
 

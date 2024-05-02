@@ -23,7 +23,7 @@ impl HostEncode for handshake::host::Probe {}
 impl HostEncode for handshake::host::UseConfig {}
 
 static SUPPORTED_VERSIONS : &[u16] = &[1];
-static SUPPORTED_BAUDS : &[u32] = &[115200, 230400, 576000, 921600];
+static SUPPORTED_BAUDS : &[u32] = &[115200, 230400, 576000, 921600, 1_000_000, 1_500_000];
 
 // B1000000, B1152000, B1500000, B2000000, B2500000, B3000000, B3500000, B4000000, B460800,
 // B500000, B576000, B921600,
