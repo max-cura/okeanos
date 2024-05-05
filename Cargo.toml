@@ -1,12 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "artefacts/thalassa",
-    "artefacts/theseus-common",
-    "artefacts/theseus-device",
-    "artefacts/theseus-upload",
-    "artefacts/lab4-send",
-    "artefacts/lab4-recv",
-    "artefacts/lab4-common",
-    "util/xor55",
+    "device/lab4-common",
+    "device/lab4-send",
+    "device/lab4-recv",
 ]
