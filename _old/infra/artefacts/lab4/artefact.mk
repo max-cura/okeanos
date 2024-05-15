@@ -118,8 +118,8 @@ all: $(ARTEFACT_BUILD_DIR)/$(ARTEFACT)_recv.bin \
 firmware: $(ARTEFACT_BUILD_DIR)/$(ARTEFACT)_send.bin $(ARTEFACT_BUILD_DIR)/$(ARTEFACT)_recv.bin
 	# config.txt bootcode.bin start.elf kernel.img
 	mkdir -p $(ARTEFACT_BUILD_DIR)/firmware
-#	cp $(INF_CFG_CS240LX_2024_PATH)/firmware/{config.txt,bootcode.bin,start.elf} $(ARTEFACT_BUILD_DIR)/firmware
-#	cp $(ARTEFACT_BUILD_DIR)/$(ARTEFACT).bin $(ARTEFACT_BUILD_DIR)/firmware/kernel.img
+#	cp $(INF_CFG_CS240LX_2024_PATH)/firmware-class/{config.txt,bootcode.bin,start.elf} $(ARTEFACT_BUILD_DIR)/firmware-class
+#	cp $(ARTEFACT_BUILD_DIR)/$(ARTEFACT).bin $(ARTEFACT_BUILD_DIR)/firmware-class/kernel.img
 
 #install-send: $(ARTEFACT_BUILD_DIR)/$(ARTEFACT)_send.bin
 #

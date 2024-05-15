@@ -4,4 +4,11 @@ members = [
     "device/lab4-common",
     "device/lab4-send",
     "device/lab4-recv",
+    "device/bismuth",
+    "device/lab7-wave",
+    "device/lab7-scope",
+
+    "device/theseus-device",
+    "host/theseus-upload",
+    "common/theseus-common",
 ]

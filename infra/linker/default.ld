@@ -19,7 +19,7 @@ SECTIONS {
     /* 0x8000 is a sort of standardized location at which stuff is loaded.
      * Being as such, it is the location that our bootloader(s) default to.
      */
-    .text 0x8000 : {
+    .text 0xc000 : {
         __symbol_exec_start__ = .;
         __symbol_code_start__ = .;
         KEEP(*(.text.boot))

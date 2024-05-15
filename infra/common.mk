@@ -41,7 +41,7 @@ target := armv6zk-none-eabihf
 
 freestanding-flags := -nostdlib -ffreestanding -nostartfiles
 
-tune-flags := -mcpu=$(cpu)
+tune-flags := -mcpu=$(cpu) -march=armv6zk+fp -mfpu=vfpv2 -mfloat-abi=hard
 
 as-flags := $(freestanding-flags) $(tune-flags:%=-Wa,%) -fPIC
 as-flags += -Wa,--warn -Wa,--fatal-warnings
@@ -77,14 +77,14 @@ endif
 z-cargo-target-dir := $(cargo-target-prefix)/$(target)/$(z-cargo-target-profile)
 
 ifdef b-linker-script
-	b-linker-script := $(addprefix $(z-package-root),$(b-linker-script))
+	b-linker-script := $(addprefix $(z-package-root)/,$(b-linker-script))
 endif
 b-linker-script ?= $(def-linker-script)
 z-linker-script := $(b-linker-script)
 
 # generated files
 
-z-lib-file := $(z-cargo-target-dir)/lib$(subst -,_,$(z-artefact)).a
+z-lib-file := $(z-cargo-target-dir)/lib$(z-artefact).a
 z-elf-file := $(z-build-root)/$(z-artefact).elf
 z-list-file := $(z-build-root)/$(z-artefact).list
 z-bin-file := $(z-build-root)/$(z-artefact).bin

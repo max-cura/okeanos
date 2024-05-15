@@ -4,16 +4,16 @@
     "type": "split",
     "children": [
       {
-        "id": "64759076cc732ca3",
+        "id": "490509ec26e7ff43",
         "type": "tabs",
         "children": [
           {
-            "id": "72ca0f029e31bfff",
+            "id": "6313d4215969caad",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Easy targets.md",
+                "file": "Exokernel.md",
                 "mode": "source",
                 "source": false
               }
@@ -85,7 +85,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Easy targets.md",
+                "file": "Exokernel.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -102,7 +102,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Easy targets.md",
+                "file": "Exokernel.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -125,7 +125,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Easy targets.md"
+                "file": "Exokernel.md"
               }
             }
           }
@@ -146,8 +146,13 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "72ca0f029e31bfff",
+  "active": "6313d4215969caad",
   "lastOpenFiles": [
+    "papers/Twizzler21.pdf",
+    "papers",
+    "Exokernel.md",
+    "Untitled.md",
+    "Oscilloscope.md",
     "Easy targets.md"
   ]
 }

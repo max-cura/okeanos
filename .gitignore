@@ -10,4 +10,4 @@ _old/doc/.obsidian
 *.list
 *.o
 serialport-rs
-bin
+bin*.pdf

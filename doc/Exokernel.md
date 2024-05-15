@@ -1,0 +1,1 @@
+The key contribution of the exokernel isn't something like fast syscalls, but rather elimination of forced abstractions.

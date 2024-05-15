@@ -1,6 +1,6 @@
 #
-# FILE infra/artefacts/thalassa/common.mk
-# DESC common variables for infra/artefacts/thalassa
+# FILE infra/artefacts/lab7-scope/common.mk
+# DESC common variables for infra/artefacts/lab7-scope
 #
 
 # project-level common files

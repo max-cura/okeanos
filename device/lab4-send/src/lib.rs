@@ -2,7 +2,6 @@
 #![feature(error_in_core)]
 #![allow(internal_features)]
 #![feature(core_intrinsics)]
-#![feature(decl_macro)]
 #![feature(iter_repeat_n)]
 #![feature(ascii_char)]
 #![feature(ascii_char_variants)]

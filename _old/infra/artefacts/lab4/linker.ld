@@ -17,7 +17,7 @@
 SECTIONS {
     /* 0x8000 is the standard location at which "stuff" is loaded
      * I can't say I completely understand the boot process we're currently using, but! it loads to 0x8000
-     * Just don't know if that's the 0x8000 from firmware/config.txt, ARMBASE 0x8000 from a UART bootloader, a boot
+     * Just don't know if that's the 0x8000 from firmware-class/config.txt, ARMBASE 0x8000 from a UART bootloader, a boot
      * mode, or somewhere else.
      */
     .text 0x8000 : {

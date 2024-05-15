@@ -1,6 +1,6 @@
 #
-# FILE infra/artefacts/thalassa/artefact.mk
-# DESC The actual build system for the `thalassa` artefact.
+# FILE infra/artefacts/lab7-scope/artefact.mk
+# DESC The actual build system for the `lab7-scope` artefact.
 #
 
 include infra/artefacts/thalassa/common.mk
