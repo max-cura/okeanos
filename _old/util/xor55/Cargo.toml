@@ -1,7 +1,0 @@
-[package]
-name = "xor55"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-#theseus-common = { path = "../../artefacts/theseus-common", features = ["std"]}

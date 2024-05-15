@@ -11,3 +11,4 @@ _old/doc/.obsidian
 *.o
 serialport-rs
 bin*.pdf
+_old
