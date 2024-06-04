@@ -1,9 +1,9 @@
-pub mod v1;
 pub mod handshake;
 pub mod len;
+pub mod v1;
 
 /// A shortened version of Ethernet's preamble.
-pub const PREAMBLE : u32 = 0x5e555555;
+pub const PREAMBLE: u32 = 0x5e555555;
 
 pub type MessageTypeType = u32;
 
@@ -16,5 +16,5 @@ pub type MessageTypeType = u32;
 pub const MSG_PRINT_STRING: MessageTypeType = 1;
 
 pub trait MessageClass {
-    const MSG_TYPE : MessageTypeType;
+    const MSG_TYPE: MessageTypeType;
 }

@@ -1,19 +1,16 @@
-use theseus_common::theseus::{handshake, MessageTypeType};
-use theseus_common::theseus::handshake::device::AllowedConfigs;
 use crate::muart::{self, baud_to_clock_divider};
-use crate::reactor::{Protocol, ProtocolEnum, ProtocolResult, Reactor, Timeouts, txbuf};
 use crate::reactor::txbuf::FrameSink;
-use crate::{legacy_print_string, timing};
 use crate::reactor::v1::V1;
+use crate::reactor::{txbuf, Protocol, ProtocolEnum, ProtocolResult, Reactor, Timeouts};
+use crate::{legacy_print_string, timing};
+use theseus_common::theseus::handshake::device::AllowedConfigs;
+use theseus_common::theseus::{handshake, MessageTypeType};
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[u16] = &[1];
 const SUPPORTED_BAUDS: &[u32] = &[
     // UartClock::B115200.to_baud()
     115200, // 270
-    230400,
-    576000,
-    921600,
-    1_500_000,
+    230400, 576000, 921600, 1_500_000,
     // 2_000_000,
 ];
 
@@ -30,7 +27,7 @@ pub struct Handshake {
 impl Handshake {
     pub fn new() -> Self {
         Self {
-            state: S::ReceivedProbe
+            state: S::ReceivedProbe,
         }
     }
 }
@@ -46,18 +43,27 @@ impl Protocol for Handshake {
         match mtt {
             handshake::MSG_PROBE => {
                 if !matches!(self.state, S::ReceivedProbe) {
-                    legacy_print_string!(fs, "[device]: received Handshake/Probe, expected Handshake/UseConfig");
+                    legacy_print_string!(
+                        fs,
+                        "[device]: received Handshake/Probe, expected Handshake/UseConfig"
+                    );
                     ProtocolResult::Abcon
-                } else if let Err(e) = txbuf::send(fs, &handshake::device::AllowedConfigs::new(
-                    SUPPORTED_PROTOCOL_VERSIONS,
-                    SUPPORTED_BAUDS,
-                )) {
+                } else if let Err(e) = txbuf::send(
+                    fs,
+                    &handshake::device::AllowedConfigs::new(
+                        SUPPORTED_PROTOCOL_VERSIONS,
+                        SUPPORTED_BAUDS,
+                    ),
+                ) {
                     legacy_print_string!(fs, "[device]: failed to send Handshake/AllowedConfigs: serialization error: {e}");
                     ProtocolResult::Abcon
                 } else {
                     legacy_print_string!(fs, "[device]: received Handshake/Probe");
                     self.state = S::ReceivedConfig;
-                    match fs.send(&AllowedConfigs::new(SUPPORTED_PROTOCOL_VERSIONS, SUPPORTED_BAUDS)) {
+                    match fs.send(&AllowedConfigs::new(
+                        SUPPORTED_PROTOCOL_VERSIONS,
+                        SUPPORTED_BAUDS,
+                    )) {
                         Ok(b) => legacy_print_string!(fs, "[device]: sent: {b}"),
                         Err(e) => legacy_print_string!(fs, "[device]: failed to send: {e}"),
                     }
@@ -72,15 +78,18 @@ impl Protocol for Handshake {
                 // blinken.set(&rz.peri.GPIO, 0);
 
                 if !matches!(self.state, S::ReceivedConfig) {
-                    legacy_print_string!(fs, "[device]: received Handshake/UseConfig, expected Handshake/Probe");
-                    return ProtocolResult::Abend
+                    legacy_print_string!(
+                        fs,
+                        "[device]: received Handshake/UseConfig, expected Handshake/Probe"
+                    );
+                    return ProtocolResult::Abend;
                 }
 
-                let config : handshake::host::UseConfig = match postcard::from_bytes(msg_data) {
+                let config: handshake::host::UseConfig = match postcard::from_bytes(msg_data) {
                     Ok(x) => x,
                     Err(e) => {
                         legacy_print_string!(fs, "[device]: failed to receive Handshake/UseConfig: deserialization error: {e}");
-                        return ProtocolResult::Abend
+                        return ProtocolResult::Abend;
                     }
                 };
                 // config.version config.baud
@@ -97,17 +106,29 @@ impl Protocol for Handshake {
                 //  4a if we do not receive 0x5f within UNKNOWN ms, ABCON
                 //  5a if we do not stop receiving 0x5f within UNKNOWN ms, ABCON
                 if !SUPPORTED_PROTOCOL_VERSIONS.contains(&config.version) {
-                    legacy_print_string!(fs, "[device]: Handshake/UseConfig: unsupported version number: {}", config.version);
-                    return ProtocolResult::Abend
+                    legacy_print_string!(
+                        fs,
+                        "[device]: Handshake/UseConfig: unsupported version number: {}",
+                        config.version
+                    );
+                    return ProtocolResult::Abend;
                 }
                 if !SUPPORTED_BAUDS.contains(&config.baud) {
-                    legacy_print_string!(fs, "[device]: Handshake/UseConfig: unsupported baud rate: {}", config.baud);
-                    return ProtocolResult::Abend
+                    legacy_print_string!(
+                        fs,
+                        "[device]: Handshake/UseConfig: unsupported baud rate: {}",
+                        config.baud
+                    );
+                    return ProtocolResult::Abend;
                 }
 
                 let new_clock_divider = baud_to_clock_divider(config.baud);
 
-                legacy_print_string!(fs, "[device]: setting baud rate to: {}Bd, divider={new_clock_divider}#", config.baud);
+                legacy_print_string!(
+                    fs,
+                    "[device]: setting baud rate to: {}Bd, divider={new_clock_divider}#",
+                    config.baud
+                );
 
                 let uart = &rz.peri.UART1;
                 let systmr = &rz.peri.SYSTMR;
@@ -124,7 +145,10 @@ impl Protocol for Handshake {
 
                 // try to set the clock rate: this will flush the TX FIFO
                 if !muart::__uart1_set_clock(uart, new_clock_divider) {
-                    legacy_print_string!(fs, "[device]: setting baud rate failed (divider readback failed)");
+                    legacy_print_string!(
+                        fs,
+                        "[device]: setting baud rate failed (divider readback failed)"
+                    );
 
                     // super::Blinken::init(&rz.peri.GPIO)
                     //     ._6(&rz.peri.GPIO, true);
@@ -139,7 +163,7 @@ impl Protocol for Handshake {
                     //
                     //     __dsb();
                     // }
-                    return ProtocolResult::Abend
+                    return ProtocolResult::Abend;
                 }
 
                 // super::Blinken::init(&rz.peri.GPIO)
@@ -156,7 +180,12 @@ impl Protocol for Handshake {
                 //     __dsb();
                 // }
 
-                legacy_print_string!(fs, "[device:v{}]: setting baud rate to: {}Bd (divider={new_clock_divider})", config.version, config.baud);
+                legacy_print_string!(
+                    fs,
+                    "[device:v{}]: setting baud rate to: {}Bd (divider={new_clock_divider})",
+                    config.version,
+                    config.baud
+                );
 
                 // ALTERNATE IMPLEMENTATION: wait for 50ms and then continue as normal
 
@@ -191,7 +220,10 @@ impl Protocol for Handshake {
                 // crate::print_rpc!(fs, "[device]: transitioned baud rate!");
             }
             x => {
-                legacy_print_string!(fs, "[device]: in Handshake protocol: unexpected message type: {x}");
+                legacy_print_string!(
+                    fs,
+                    "[device]: in Handshake protocol: unexpected message type: {x}"
+                );
                 ProtocolResult::Abend
             }
         }

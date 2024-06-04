@@ -7,8 +7,8 @@
 #![feature(ascii_char_variants)]
 #![no_std]
 
-use core::fmt::Write;
 use bcm2835_lpa::Peripherals;
+use core::fmt::Write;
 use lab4_common::{sendln_blocking, Uart};
 use reactor::blinken;
 
@@ -44,7 +44,11 @@ fn panic(info: &::core::panic::PanicInfo) -> ! {
     // muart::uart1_init(&peri.GPIO, &peri.AUX, &peri.UART1, 270);
 
     if let Some(loc) = info.location() {
-        sendln_blocking!("[device]: Panic occurred at file '{}' line {}:", loc.file(), loc.line());
+        sendln_blocking!(
+            "[device]: Panic occurred at file '{}' line {}:",
+            loc.file(),
+            loc.line()
+        );
     } else {
         sendln_blocking!("[device]: Panic occurred at [unknown location]");
     }

@@ -1,12 +1,12 @@
 //! Utilities for manipulating the Legacy Interrupt Controller.
 
-use core::ptr::addr_of;
 use crate::arch::arm1176::encoding::encode_branch;
+use core::alloc::Layout;
+use core::ptr::addr_of;
 
 /// Soft version of the Legacy Interrupt Controller Vector Table.
 /// This data structure is not binary compatible with the LIC, but can be used to write an actual
 /// table into memory ([`LICVectorTable::try_write_at`]).
-#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct LICVectorTable {
     // offset 0x00, Supervisor mode
@@ -27,35 +27,39 @@ pub struct LICVectorTable {
 
 // From extern/lic.S
 extern "C" {
-    static __bis__lic_handle_reset_default : u32;
-    static __bis__lic_handle_undefined_instruction_default : u32;
-    static __bis__lic_handle_software_interrupt_default : u32;
-    static __bis__lic_handle_prefetch_abort_default : u32;
-    static __bis__lic_handle_data_abort_default : u32;
-    static __bis__lic_handle_irq_default : u32;
-    static __bis__lic_handle_fiq_default : u32;
+    static __bis__lic_handle_reset: u32;
+    static __bis__lic_handle_undefined_instruction: u32;
+    static __bis__lic_handle_software_interrupt: u32;
+    static __bis__lic_handle_prefetch_abort: u32;
+    static __bis__lic_handle_data_abort: u32;
+    static __bis__lic_handle_irq: u32;
+    static __bis__lic_handle_fiq: u32;
 
     // TODO: SMCs and BKPTs don't go through the LIC.
-    static __bis__lic_handle_smc_default : u32;
-    static __bis__lic_handle_bkpt_default : u32;
+    static __bis__lic_handle_smc: u32;
+    static __bis__lic_handle_bkpt: u32;
 }
 
 impl LICVectorTable {
+    pub fn layout() -> Layout {
+        Layout::from_size_align(0x20, 0x20).unwrap()
+    }
+
     pub fn new() -> Self {
         unsafe {
             Self {
-                reset: addr_of!(__bis__lic_handle_reset_default),
-                undefined_instruction: addr_of!(__bis__lic_handle_undefined_instruction_default),
-                software_interrupt: addr_of!(__bis__lic_handle_software_interrupt_default),
-                prefetch_abort: addr_of!(__bis__lic_handle_prefetch_abort_default),
-                data_abort: addr_of!(__bis__lic_handle_data_abort_default),
-                irq: addr_of!(__bis__lic_handle_irq_default),
-                fiq: addr_of!(__bis__lic_handle_fiq_default),
+                reset: addr_of!(__bis__lic_handle_reset),
+                undefined_instruction: addr_of!(__bis__lic_handle_undefined_instruction),
+                software_interrupt: addr_of!(__bis__lic_handle_software_interrupt),
+                prefetch_abort: addr_of!(__bis__lic_handle_prefetch_abort),
+                data_abort: addr_of!(__bis__lic_handle_data_abort),
+                irq: addr_of!(__bis__lic_handle_irq),
+                fiq: addr_of!(__bis__lic_handle_fiq),
             }
         }
     }
     pub unsafe fn try_write_at(&self, to: *mut u32) -> bool {
-        let x : Option<()> = try {
+        let x: Option<()> = try {
             let enc_reset = encode_branch(to.byte_offset(0x0), self.reset)?;
             let enc_undef = encode_branch(to.byte_offset(0x4), self.undefined_instruction)?;
             let enc_swi = encode_branch(to.byte_offset(0x8), self.software_interrupt)?;

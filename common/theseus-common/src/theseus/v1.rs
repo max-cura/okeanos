@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use crate::theseus::MessageTypeType;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(u32)]
@@ -21,17 +21,17 @@ impl V1MessageType {
     }
 }
 
-pub const MSG_REQUEST_PROGRAM_INFO : MessageTypeType = V1MessageType::RequestProgramInfo.to_u32();
-pub const MSG_PROGRAM_INFO : MessageTypeType = V1MessageType::ProgramInfo.to_u32();
-pub const MSG_REQUEST_PROGRAM : MessageTypeType = V1MessageType::RequestProgram.to_u32();
-pub const MSG_PROGRAM_READY : MessageTypeType = V1MessageType::ProgramReady.to_u32();
-pub const MSG_REQUEST_CHUNK : MessageTypeType = V1MessageType::RequestChunk.to_u32();
-pub const MSG_CHUNK : MessageTypeType = V1MessageType::Chunk.to_u32();
-pub const MSG_BOOTING : MessageTypeType = V1MessageType::Booting.to_u32();
+pub const MSG_REQUEST_PROGRAM_INFO: MessageTypeType = V1MessageType::RequestProgramInfo.to_u32();
+pub const MSG_PROGRAM_INFO: MessageTypeType = V1MessageType::ProgramInfo.to_u32();
+pub const MSG_REQUEST_PROGRAM: MessageTypeType = V1MessageType::RequestProgram.to_u32();
+pub const MSG_PROGRAM_READY: MessageTypeType = V1MessageType::ProgramReady.to_u32();
+pub const MSG_REQUEST_CHUNK: MessageTypeType = V1MessageType::RequestChunk.to_u32();
+pub const MSG_CHUNK: MessageTypeType = V1MessageType::Chunk.to_u32();
+pub const MSG_BOOTING: MessageTypeType = V1MessageType::Booting.to_u32();
 
 pub mod host {
-    use serde::{Deserialize, Serialize};
     use crate::theseus::{MessageClass, MessageTypeType};
+    use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
     pub struct ProgramInfo {
@@ -43,7 +43,7 @@ pub mod host {
         pub compressed_crc: u32,
         pub decompressed_crc: u32,
     }
-    
+
     impl MessageClass for ProgramInfo {
         const MSG_TYPE: MessageTypeType = super::MSG_PROGRAM_INFO;
     }
@@ -67,8 +67,8 @@ pub mod host {
 }
 
 pub mod device {
-    use serde::{Deserialize, Serialize};
     use crate::theseus::{MessageClass, MessageTypeType};
+    use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
     pub struct RequestProgramInfo;
@@ -90,7 +90,7 @@ pub mod device {
 
     #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
     pub struct RequestChunk {
-        pub chunk_no: u32
+        pub chunk_no: u32,
     }
 
     impl MessageClass for RequestChunk {

@@ -1,6 +1,6 @@
+use super::uart1;
 use bcm2835_lpa::UART1;
 use theseus_common::su_boot;
-use super::uart1;
 
 pub struct UartWrite<'a> {
     inner: &'a UART1,
@@ -19,7 +19,7 @@ impl<'a> UartWrite<'a> {
 impl<'a> core::fmt::Write for UartWrite<'a> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         // [PRINT_STRING, len(u32), data]
-        const PRINT_STRING : u32 = su_boot::Command::PrintString as u32;
+        const PRINT_STRING: u32 = su_boot::Command::PrintString as u32;
         uart1::uart1_write32(self.inner, PRINT_STRING);
         uart1::uart1_write32(self.inner, s.len() as u32);
         uart1::uart1_write_bytes(self.inner, s.as_bytes());
@@ -45,7 +45,11 @@ impl<const N: usize> TinyBuf<N> {
 
 impl<const N: usize> TinyBuf<N> {
     const fn new() -> Self {
-        Self { inner: [0; N], curs: 0, truncated: false }
+        Self {
+            inner: [0; N],
+            curs: 0,
+            truncated: false,
+        }
     }
     pub fn clear(&mut self) {
         self.inner.iter_mut().for_each(|x| *x = 0);
@@ -62,22 +66,23 @@ impl<const N: usize> Default for TinyBuf<N> {
 
 impl<const N: usize> core::fmt::Write for TinyBuf<N> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        const TRUNCATION_NOTICE : &str = "<truncated>";
+        const TRUNCATION_NOTICE: &str = "<truncated>";
 
         if self.truncated {
-            return Ok(())
+            return Ok(());
         }
 
-        let mut buf : [u8; 4] = [0; 4];
+        let mut buf: [u8; 4] = [0; 4];
         for c in s.chars() {
             let enc = c.encode_utf8(&mut buf);
-            if (self.curs + enc.len()) >= /* TODO: inline_const */ /* const */ { N - TRUNCATION_NOTICE.len() } {
+            if (self.curs + enc.len()) >= /* TODO: inline_const */ /* const */ { N - TRUNCATION_NOTICE.len() }
+            {
                 self.truncated = true;
                 self.inner[self.curs..(self.curs + TRUNCATION_NOTICE.len())]
                     .copy_from_slice(TRUNCATION_NOTICE.as_bytes());
                 self.curs += TRUNCATION_NOTICE.len();
 
-                return Ok(())
+                return Ok(());
             } else {
                 self.inner[self.curs..(self.curs + enc.len())].copy_from_slice(enc.as_bytes());
                 self.curs += enc.len();
@@ -88,7 +93,7 @@ impl<const N: usize> core::fmt::Write for TinyBuf<N> {
     }
 }
 
-pub static mut BOOT_UMSG_BUF : TinyBuf<0x4000> = TinyBuf::new();
+pub static mut BOOT_UMSG_BUF: TinyBuf<0x4000> = TinyBuf::new();
 
 #[macro_export]
 macro_rules! legacy_print_string_blocking {

@@ -1,5 +1,5 @@
-use core::fmt::{self, Write as _};
 use crate::reactor::{Logger, Reactor};
+use core::fmt::{self, Write as _};
 
 #[derive(Debug)]
 pub struct RawUart1Logger;

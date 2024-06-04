@@ -8,7 +8,10 @@ pub struct FrameDataBuffer {
 
 impl FrameDataBuffer {
     pub fn new(underlying_storage: &'static mut [u8]) -> Self {
-        Self { underlying_storage, cursor: 0 }
+        Self {
+            underlying_storage,
+            cursor: 0,
+        }
     }
     pub fn clear(&mut self) {
         self.cursor = 0;

@@ -1,28 +1,26 @@
-use std::io::{ErrorKind, Read};
-use std::time::Duration;
-use color_eyre::eyre;
 use crate::args::Args;
 use crate::bin_name;
 use crate::find_tty::find_most_recent_tty_serial_device;
+use color_eyre::eyre;
+use std::io::{ErrorKind, Read};
+use std::time::Duration;
 
-use theseus_common::{
-    INITIAL_BAUD_RATE,
-};
 use crate::echo::echo;
 use crate::hexify::hexify;
 use crate::io::RW32;
 use crate::tty::TTY;
+use theseus_common::INITIAL_BAUD_RATE;
 
-pub fn protocol_begin(
-    args: Args,
-) -> eyre::Result<()> {
+pub fn protocol_begin(args: Args) -> eyre::Result<()> {
     let Args {
         address: _,
         device,
         baud: _,
-        verbose: _, quiet: _, timestamps: _,
+        verbose: _,
+        quiet: _,
+        timestamps: _,
         trace: _,
-        bin_file: _
+        bin_file: _,
     } = args.clone();
 
     let device_path = device
@@ -49,11 +47,14 @@ pub fn protocol_begin(
     let mut succeeded = false;
     // for attempt_no in 1..=5 {
     for attempt_no in 1..=5 {
-        log::info!("[{}]: Attempting ({attempt_no}/5) to promote protocol", bin_name());
+        log::info!(
+            "[{}]: Attempting ({attempt_no}/5) to promote protocol",
+            bin_name()
+        );
 
         if super::theseus::try_promote(&args, &mut tty)? {
             succeeded = true;
-            break
+            break;
         }
     }
     if !succeeded {
@@ -65,10 +66,7 @@ pub fn protocol_begin(
 
 /// Wait for GET_PROG_INFO, and figure out what version of THESEUS to execute or if we should switch
 /// to SU-BOOT.
-fn state_initial(
-    _args: &Args,
-    tty: &mut TTY
-) {
+fn state_initial(_args: &Args, tty: &mut TTY) {
     let mut status = 0;
     log::debug!("Waiting for GET_PROG_INFO");
     loop {
@@ -107,7 +105,7 @@ fn state_initial(
         }
 
         if status == 4 {
-            break
+            break;
         }
     }
 

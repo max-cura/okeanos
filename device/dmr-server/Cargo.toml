@@ -1,0 +1,15 @@
+[package]
+name = "dmr-server"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+bcm2835-lpa = "0.4.0"
+bismuth = { path = "../bismuth" }
+#vcell = "0.1.3"
+proc-bitfield = "0.4.0"
+volatile-register = "0.2.2"
+embedded-alloc = "0.5.1"

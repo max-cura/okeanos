@@ -1,14 +1,12 @@
-use bcm2835_lpa::UART1;
 use crate::arm1176::__dsb;
+use bcm2835_lpa::UART1;
 
 pub fn uart1_write8(uart1_device: &UART1, x: u8) {
     __dsb();
 
     while !uart1_device.stat().read().tx_ready().bit_is_set() {}
 
-    uart1_device.io().write(|w| {
-        unsafe { w.data().bits(x) }
-    });
+    uart1_device.io().write(|w| unsafe { w.data().bits(x) });
 
     __dsb();
 }
@@ -24,16 +22,14 @@ pub fn uart1_write32(uart1_device: &UART1, x: u32) {
 }
 
 pub fn uart1_read32_blocking(uart1_device: &UART1) -> u32 {
-    let mut buf = [0;4];
+    let mut buf = [0; 4];
     for i in 0..4 {
         buf[i] = uart1_read8_blocking(uart1_device);
     }
     u32::from_le_bytes(buf)
 }
 
-pub fn uart1_read8_nb(
-    uart1_device: &UART1,
-) -> Option<u8> {
+pub fn uart1_read8_nb(uart1_device: &UART1) -> Option<u8> {
     __dsb();
 
     let r = if uart1_device.stat().read().data_ready().bit_is_set() {

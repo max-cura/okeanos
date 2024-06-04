@@ -1,6 +1,6 @@
+use crate::arch::arm1176::{__dsb, __sev, __wfe};
 use core::arch::asm;
 use lock_api::{GuardSend, RawMutex, RawMutexFair};
-use crate::arch::arm1176::{__dsb, __sev, __wfe};
 
 const NEXT_LSB: u32 = 1 << 16;
 
@@ -46,9 +46,11 @@ unsafe impl RawMutex for RawTicketLock {
         unsafe {
             while raw_val.ordered.owner != raw_val.ordered.next {
                 __wfe();
-                raw_val.ordered.owner = core::intrinsics::atomic_load_acquire(core::ptr::from_ref(&self.ordered.owner));
+                raw_val.ordered.owner =
+                    core::intrinsics::atomic_load_acquire(core::ptr::from_ref(&self.ordered.owner));
             }
         }
+        let _ = ticket;
 
         /* linux has smb_mb here, but it doesn't seem like that's implemented on arm1176jzf-s */
     }
@@ -72,7 +74,7 @@ unsafe impl RawMutex for RawTicketLock {
                 );
             }
             if atomic == 0 {
-                break
+                break;
             }
         }
         if contended == 0 {

@@ -1,11 +1,11 @@
-use core::time::Duration;
-use bcm2835_lpa::SYSTMR;
 use super::arm1176::__dsb;
+use bcm2835_lpa::SYSTMR;
+use core::time::Duration;
 
 // we want a version without __dsb()'s for use in tight loops where we have no other peripherals
 // (e.g. the delay functions).
 unsafe fn __floating_time_unguarded(st: &SYSTMR) -> u64 {
-    let hi32 = {st.chi().read().bits() as u64 } << 32;
+    let hi32 = { st.chi().read().bits() as u64 } << 32;
     hi32 | { st.clo().read().bits() as u64 }
 }
 
@@ -24,20 +24,22 @@ pub struct Instant {
     floating_micros: u64,
 }
 impl Instant {
-    pub fn now(st: &SYSTMR) -> Self { Self { floating_micros: __floating_time(st) } }
+    pub fn now(st: &SYSTMR) -> Self {
+        Self {
+            floating_micros: __floating_time(st),
+        }
+    }
     pub fn elapsed(&self, st: &SYSTMR) -> Duration {
         let current_time = __floating_time(st);
-        Duration::from_micros(
-            current_time.wrapping_sub(self.floating_micros)
-        )
+        Duration::from_micros(current_time.wrapping_sub(self.floating_micros))
     }
 }
 
 /// Blocking wait for (at least) `milliseconds` milliseconds.
 /// Implemented on top of [`delay_micros`]; see that function's documentation for timing guarantees.
 pub fn delay_millis(st: &SYSTMR, mut milliseconds: u64) {
-    const MAX_MILLIS_PER_STEP : u64 = u64::MAX / 1000;
-    const SATURATE_TO_MICROS : u64 = MAX_MILLIS_PER_STEP * 1000;
+    const MAX_MILLIS_PER_STEP: u64 = u64::MAX / 1000;
+    const SATURATE_TO_MICROS: u64 = MAX_MILLIS_PER_STEP * 1000;
     while milliseconds > MAX_MILLIS_PER_STEP {
         let microseconds = SATURATE_TO_MICROS;
         delay_micros(st, microseconds);
@@ -76,26 +78,25 @@ pub fn delay_micros(st: &SYSTMR, microseconds: u64) {
                 if passed_zero && now >= U64_HALF && !passed_half {
                     passed_half = true;
                 }
-                if
-                (passed_zero && now >= end)
-                    || (passed_half && now < U64_HALF)
-                {
-                    break
+                if (passed_zero && now >= end) || (passed_half && now < U64_HALF) {
+                    break;
                 }
             }
         } else {
             // small wraparound 0 <= end << start <= u64::MAX
-            while { let now = unsafe { __floating_time_unguarded(st) };
-                    now >= start || now < end }
-            {
+            while {
+                let now = unsafe { __floating_time_unguarded(st) };
+                now >= start || now < end
+            } {
                 // do nothing
             }
         }
     } else {
         // no wraparound: start <= end <= u64::MAX
-        while { let now = unsafe { __floating_time_unguarded(st) };
-                start <= now && now < end }
-        {
+        while {
+            let now = unsafe { __floating_time_unguarded(st) };
+            start <= now && now < end
+        } {
             // do nothing
         }
     }

@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 
 /// Used to test when trying to align the host's and device's baud rates to the value set in
 /// [`host::UseConfig`].
-pub const BAUD_ALIGNMENT_BYTE : u8 = 0x5f;
+pub const BAUD_ALIGNMENT_BYTE: u8 = 0x5f;
 
 pub mod host {
-    use serde::{Deserialize, Serialize};
     use crate::theseus::{MessageClass, MessageTypeType};
+    use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
     pub struct Probe;
@@ -26,8 +26,8 @@ pub mod host {
 }
 
 pub mod device {
-    use serde::{Deserialize, Serialize};
     use crate::theseus::{MessageClass, MessageTypeType};
+    use serde::{Deserialize, Serialize};
 
     // opaque type (reason: alignment)
     #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -37,10 +37,7 @@ pub mod device {
     }
 
     impl<'a> AllowedConfigs<'a> {
-        pub fn new(
-            versions: &'a [u16],
-            bauds: &'a [u32]
-        ) -> Self {
+        pub fn new(versions: &'a [u16], bauds: &'a [u32]) -> Self {
             Self {
                 supported_bauds: bytemuck::cast_slice(bauds),
                 supported_versions: bytemuck::cast_slice(versions),
@@ -62,10 +59,8 @@ pub mod device {
         fn from(value: AllowedConfigs<'a>) -> Self {
             let mut b1 = vec![0u16; value.supported_versions.len() / 2];
             let mut b2 = vec![0u32; value.supported_bauds.len() / 4];
-            bytemuck::cast_slice_mut::<u16, u8>(&mut b1)
-                .copy_from_slice(value.supported_versions);
-            bytemuck::cast_slice_mut::<u32, u8>(&mut b2)
-                .copy_from_slice(value.supported_bauds);
+            bytemuck::cast_slice_mut::<u16, u8>(&mut b1).copy_from_slice(value.supported_versions);
+            bytemuck::cast_slice_mut::<u32, u8>(&mut b2).copy_from_slice(value.supported_bauds);
             AllowedConfigsHelper {
                 supported_versions: b1,
                 supported_bauds: b2,
@@ -82,9 +77,9 @@ pub enum HandshakeMessageType {
     UseConfig = 102,
 }
 
-pub const MSG_PROBE : u32 = HandshakeMessageType::Probe.to_u32();
-pub const MSG_ALLOWED_CONFIGS : u32 = HandshakeMessageType::AllowedConfigs.to_u32();
-pub const MSG_USE_CONFIG : u32 = HandshakeMessageType::UseConfig.to_u32();
+pub const MSG_PROBE: u32 = HandshakeMessageType::Probe.to_u32();
+pub const MSG_ALLOWED_CONFIGS: u32 = HandshakeMessageType::AllowedConfigs.to_u32();
+pub const MSG_USE_CONFIG: u32 = HandshakeMessageType::UseConfig.to_u32();
 
 impl HandshakeMessageType {
     pub const fn to_u32(self) -> u32 {
@@ -96,5 +91,5 @@ impl HandshakeMessageType {
 pub enum HandshakeMessage<'a> {
     Probe(host::Probe),
     UseConfig(host::UseConfig),
-    AllowedConfigs(device::AllowedConfigs<'a>)
+    AllowedConfigs(device::AllowedConfigs<'a>),
 }

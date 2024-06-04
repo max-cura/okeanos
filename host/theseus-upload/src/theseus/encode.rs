@@ -3,7 +3,7 @@ use theseus_common::{
     theseus::{self, MessageClass},
 };
 
-pub trait HostEncode : serde::Serialize + MessageClass {
+pub trait HostEncode: serde::Serialize + MessageClass {
     fn encode(&self) -> color_eyre::Result<Vec<u8>> {
         let buf = vec![];
         let buf = postcard::to_extend(&Self::MSG_TYPE, buf)?;

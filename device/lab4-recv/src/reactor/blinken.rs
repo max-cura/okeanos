@@ -6,7 +6,8 @@ pub struct Blinken;
 impl Blinken {
     pub fn init(gpio: &GPIO) -> Self {
         __dsb();
-        gpio.gpfsel0().modify(|_, w| w.fsel6().output().fsel8().output());
+        gpio.gpfsel0()
+            .modify(|_, w| w.fsel6().output().fsel8().output());
         gpio.gpfsel2().modify(|_, w| w.fsel27().output());
         gpio.gpfsel4().modify(|_, w| w.fsel47().output());
         __dsb();
@@ -26,7 +27,10 @@ impl Blinken {
         if x {
             unsafe { gpio.gpset0().write_with_zero(|w| w.set6().set_bit()) };
         } else {
-            unsafe { gpio.gpclr0().write_with_zero(|w| w.clr6().clear_bit_by_one()) };
+            unsafe {
+                gpio.gpclr0()
+                    .write_with_zero(|w| w.clr6().clear_bit_by_one())
+            };
         }
         __dsb();
     }
@@ -35,7 +39,10 @@ impl Blinken {
         if x {
             unsafe { gpio.gpset0().write_with_zero(|w| w.set8().set_bit()) };
         } else {
-            unsafe { gpio.gpclr0().write_with_zero(|w| w.clr8().clear_bit_by_one()) };
+            unsafe {
+                gpio.gpclr0()
+                    .write_with_zero(|w| w.clr8().clear_bit_by_one())
+            };
         }
         __dsb();
     }
@@ -44,14 +51,20 @@ impl Blinken {
         if x {
             unsafe { gpio.gpset0().write_with_zero(|w| w.set27().set_bit()) };
         } else {
-            unsafe { gpio.gpclr0().write_with_zero(|w| w.clr27().clear_bit_by_one()) };
+            unsafe {
+                gpio.gpclr0()
+                    .write_with_zero(|w| w.clr27().clear_bit_by_one())
+            };
         }
         __dsb();
     }
     pub fn _47(&self, gpio: &GPIO, x: bool) {
         __dsb();
         if x {
-            unsafe { gpio.gpclr1().write_with_zero(|w| w.clr47().clear_bit_by_one()) };
+            unsafe {
+                gpio.gpclr1()
+                    .write_with_zero(|w| w.clr47().clear_bit_by_one())
+            };
         } else {
             unsafe { gpio.gpset1().write_with_zero(|w| w.set47().set_bit()) };
         }

@@ -1,5 +1,5 @@
-use core::time::Duration;
 use crate::ir::PDC_BIT_DURATION;
+use core::time::Duration;
 
 #[derive(Debug, Copy, Clone)]
 pub struct RateRelativeTimeout {
@@ -13,10 +13,7 @@ impl RateRelativeTimeout {
     pub const fn with_ir(self) -> Duration {
         use super::ir::PDC_BIT_DURATION;
 
-        Duration::from_micros(
-            PDC_BIT_DURATION.as_micros() as u64
-                * (self.bytes as u64) * 8
-        )
+        Duration::from_micros(PDC_BIT_DURATION.as_micros() as u64 * (self.bytes as u64) * 8)
     }
 
     pub const fn at_baud_8n1(self, baud: u32) -> Duration {

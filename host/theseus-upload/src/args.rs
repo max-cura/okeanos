@@ -13,7 +13,7 @@ impl Display for TraceLevel {
         match self {
             TraceLevel::Off => write!(f, "off"),
             TraceLevel::Control => write!(f, "control"),
-            TraceLevel::All => write!(f, "all")
+            TraceLevel::All => write!(f, "all"),
         }
     }
 }
@@ -22,13 +22,13 @@ impl Display for TraceLevel {
 pub enum Protocol {
     #[default]
     Theseus,
-    CS240LX
+    CS240LX,
 }
 impl Display for Protocol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Protocol::Theseus => write!(f, "theseus"),
-            Protocol::CS240LX => write!(f, "cs240lx")
+            Protocol::CS240LX => write!(f, "cs240lx"),
         }
     }
 }
@@ -45,7 +45,7 @@ pub struct Args {
     pub(crate) device: Option<PathBuf>,
 
     /// Baud rate to use
-    #[arg(short, long, default_value_t=115200)]
+    #[arg(short, long, default_value_t = 115200)]
     pub(crate) baud: u32,
 
     /// Increase message verbosity
@@ -67,7 +67,6 @@ pub struct Args {
     // /// Bootloader protocol to use
     // #[arg(short, long, default_value_t)]
     // pub(crate) protocol: Protocol,
-
     /// .bin file to write
     #[arg(required = true)]
     pub(crate) bin_file: PathBuf,

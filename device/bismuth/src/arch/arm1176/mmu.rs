@@ -1,3 +1,4 @@
+use crate::uart1_sendln_bl;
 use core::arch::asm;
 
 pub struct MMUEnabledFeaturesConfig {
@@ -9,17 +10,29 @@ pub struct MMUEnabledFeaturesConfig {
 pub unsafe fn __set_mmu_enabled_features(config: MMUEnabledFeaturesConfig) {
     let mut cr_on = 0;
     let mut cr_off = 0;
-    const CR_DCACHE_BIT : u32 = 1 << 2;
-    const CR_BRPDX_BIT : u32 = 1 << 11;
-    const CR_ICACHE_BIT : u32 = 1 << 12;
+    const CR_DCACHE_BIT: u32 = 1 << 2;
+    const CR_BRPDX_BIT: u32 = 1 << 11;
+    const CR_ICACHE_BIT: u32 = 1 << 12;
     if let Some(dcache) = config.dcache {
-        if dcache { cr_on |= CR_DCACHE_BIT } else { cr_off |= CR_DCACHE_BIT }
+        if dcache {
+            cr_on |= CR_DCACHE_BIT
+        } else {
+            cr_off |= CR_DCACHE_BIT
+        }
     }
     if let Some(icache) = config.icache {
-        if icache { cr_on |= CR_ICACHE_BIT } else { cr_off |= CR_ICACHE_BIT }
+        if icache {
+            cr_on |= CR_ICACHE_BIT
+        } else {
+            cr_off |= CR_ICACHE_BIT
+        }
     }
     if let Some(brpdx) = config.brpdx {
-        if brpdx { cr_on |= CR_BRPDX_BIT } else { cr_off |= CR_BRPDX_BIT }
+        if brpdx {
+            cr_on |= CR_BRPDX_BIT
+        } else {
+            cr_off |= CR_BRPDX_BIT
+        }
     }
     if cr_on != 0 || cr_off != 0 {
         asm!(
@@ -35,16 +48,14 @@ pub unsafe fn __set_mmu_enabled_features(config: MMUEnabledFeaturesConfig) {
 }
 
 #[inline(never)]
-pub unsafe fn __init_mmu(
-    ttb_ptr: *mut u32,
-) {
+pub unsafe fn __init_mmu(ttb_ptr: *mut u32) {
     // TTB
     __init_mmu_translation_table(ttb_ptr);
     // DAC, PRRR, NMRR
     __init_mmu_tex_remap();
 
     // translation table base register 0
-    let ttb0 = (ttb_ptr.addr() as u32) | 0b01001;
+    let ttb0 = (ttb_ptr as usize as u32) | 0b01001;
     asm!(
         "mcr p15, 0, {t}, c2, c0, 0",
         t = in(reg) ttb0,
@@ -77,6 +88,8 @@ pub unsafe fn __init_mmu(
         t = in(reg) 0,
     );
 
+    uart1_sendln_bl!("about to enable MMU");
+
     // enable MMU
     asm!(
         "mrc p15, 0, {t}, c1, c0, 0",
@@ -86,9 +99,7 @@ pub unsafe fn __init_mmu(
     )
 }
 
-pub unsafe fn __init_mmu_translation_table(
-    ttb_ptr: *mut u32,
-) {
+pub unsafe fn __init_mmu_translation_table(ttb_ptr: *mut u32) {
     // uart1_sendln_bl!("__init_mmu_translation_table({ttb_ptr:p})");
     // 0000_0000..1f00_0000 is ARM SDRAM
     // 1f00_0000..1fff_ffff is VC SDRAM iff configured to support a mmap'd display (that is not the
@@ -98,9 +109,7 @@ pub unsafe fn __init_mmu_translation_table(
     // a full TTB is 16KB, so 4K entries, each entry represents 1MB
     // initially, we map:
     for ttei in 0..0x1000 {
-        ttb_ptr
-            .offset(ttei)
-            .write_volatile(0);
+        ttb_ptr.offset(ttei).write_volatile(0);
     }
     // uart1_sendln_bl!("ttb_ptr={ttb_ptr:p}");
     fn tt_supersection(index: u32, tex: u32, c: u32, b: u32) -> u32 {
@@ -131,19 +140,13 @@ pub unsafe fn __init_mmu_translation_table(
         let entry_ptr = ttb_ptr.offset(ttei);
         // BB=11, write back, no allocate on write
         // AA=11, write back, no allocate on write
-        let val = tt_supersection(ssi, 0b001, 0, 1);
+        // let val = tt_supersection(ssi, 0b111, 1, 1); // <-- with TEX Remap OFF
+        // TEMP: uncached
+        // restore to: 0b001, 0, 1
+        let val = tt_supersection(ssi, 0b001, 0, 0);
         // uart1_sendln_bl!("BLK1 writing {val:08x} to {entry_ptr:p}");
         entry_ptr.write_volatile(val);
     }
-    // //  1000_0000..2000_0000 to 8000_0000..2000_0000 (256)
-    // for si in 0..256 {
-    //     let ttei = 0x100 + si;
-    //     let ssi = ((si + 256) >> 4) as u32;
-    //     let entry_ptr = ttb_ptr.offset(ttei);
-    //     let val = tt_supersection(ssi, 0b001, 0, 1);
-    //     // uart1_sendln_bl!("BLK2 writing {val:08x} to {entry_ptr:p}");
-    //     entry_ptr.write_volatile(val);
-    // }
     //  2000_0000..2100_0000 to 2000_0000..2100_0000 (16)
     for si in 0..16 {
         let ttei = 0x200 + si;

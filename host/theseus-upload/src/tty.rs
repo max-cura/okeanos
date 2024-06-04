@@ -1,16 +1,18 @@
+use color_eyre::{eyre, Result};
+use nix::poll::{PollFd, PollFlags};
+use nix::{ioctl_read, ioctl_write_ptr_bad};
 use std::ffi::{c_int, CString};
 use std::io::{Read, Write};
 use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
-use std::{io, ptr, slice};
 use std::time::Duration;
-use color_eyre::{eyre, Result};
-use nix::{ioctl_read, ioctl_write_ptr_bad};
-use nix::poll::{PollFd, PollFlags};
+use std::{io, ptr, slice};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ClearBuffer {
-    Input, Output, All
+    Input,
+    Output,
+    All,
 }
 
 pub struct TTY {
@@ -21,11 +23,11 @@ pub struct TTY {
 
 const IOSSIOSPEED: libc::c_ulong = 0x80045402;
 ioctl_write_ptr_bad!(
-        #[cfg(any(target_os = "ios", target_os = "macos"))]
-        iossiospeed,
-        IOSSIOSPEED,
-        libc::speed_t
-    );
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    iossiospeed,
+    IOSSIOSPEED,
+    libc::speed_t
+);
 
 ioctl_read!(fionread, b'f', 127, libc::c_int);
 
@@ -35,28 +37,26 @@ impl TTY {
     }
 
     pub fn read_timeout(&mut self, buf: &mut [u8], timeout: Duration) -> std::io::Result<usize> {
-        if buf.len() == 0 { return Ok(0) }
+        if buf.len() == 0 {
+            return Ok(0);
+        }
 
-        self._read_timeout(
-            buf,
-            timeout,
-        )
+        self._read_timeout(buf, timeout)
     }
 
     pub fn read_nonblocking(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if buf.len() == 0 { return Ok(0) }
+        if buf.len() == 0 {
+            return Ok(0);
+        }
 
-        let n = unsafe { libc::read(
-            self.fd,
-            buf.as_mut_ptr() as *mut libc::c_void,
-            buf.len(),
-        ) };
+        let n = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
         if n == -1 {
             let errno = nix::errno::errno();
             if errno == libc::EAGAIN {
                 Err(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
-                    "no available data on TTY"))
+                    "no available data on TTY",
+                ))
             } else {
                 Err(nix::errno::Errno::last().into())
             }
@@ -79,7 +79,7 @@ impl Read for TTY {
         //      this does not mean that the reader will *always* no longer be able to produce bytes
         //   B. buffer specified was 0 bytes in length
         if buf.len() == 0 {
-            return Ok(0)
+            return Ok(0);
         }
 
         // We implement this as: timeout read!
@@ -112,32 +112,32 @@ impl Write for TTY {
             // of the operation should be retried when possible.
 
             // problem : we want to write when
-            libc::write(
-                self.fd,
-                buf.as_ptr() as *const libc::c_void,
-                buf.len()
-            )
+            libc::write(self.fd, buf.as_ptr() as *const libc::c_void, buf.len())
         };
         if n == -1 {
             // error
             if nix::errno::errno() == libc::EAGAIN {
-                Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "write() would block"))
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "write() would block",
+                ))
             } else {
                 Err(nix::errno::Errno::last().into())
             }
         } else {
             if n == 0 {
-                Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "write() returned 0"))
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "write() returned 0",
+                ))
             } else {
-                Ok(n as  usize)
+                Ok(n as usize)
             }
         }
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        let r = unsafe {
-            libc::tcdrain(self.fd)
-        };
+        let r = unsafe { libc::tcdrain(self.fd) };
         if r == -1 {
             Err(nix::errno::Errno::last().into())
         } else {
@@ -147,31 +147,30 @@ impl Write for TTY {
 }
 
 impl TTY {
-    pub fn new<P: AsRef<Path>>(
-        path: P,
-        baud: u32,
-    ) -> Result<Self> {
-        let path_cstr = CString::new(path.as_ref().as_os_str().as_encoded_bytes())
-            .unwrap();
+    pub fn new<P: AsRef<Path>>(path: P, baud: u32) -> Result<Self> {
+        let path_cstr = CString::new(path.as_ref().as_os_str().as_encoded_bytes()).unwrap();
         unsafe {
             // log::trace!("calling libc::open");
             let fd = libc::open(
                 path_cstr.into_raw(),
                 // readwrite, NOCTTY, SYNC, close-on-exec, don't block on open or for data to become
                 // available
-                libc::O_RDWR | libc::O_NOCTTY | libc::O_SYNC | libc::O_CLOEXEC | libc::O_NONBLOCK
+                libc::O_RDWR | libc::O_NOCTTY | libc::O_SYNC | libc::O_CLOEXEC | libc::O_NONBLOCK,
             );
             // log::trace!("libc::open returned {fd}");
             if fd >= 0 {
                 let mut this = Self {
                     fd,
-                    default_timeout: Duration::new(0,0),
-                    path: path.as_ref().to_path_buf()
+                    default_timeout: Duration::new(0, 0),
+                    path: path.as_ref().to_path_buf(),
                 };
                 this.set_baud_rate(baud)?;
                 Ok(this)
             } else {
-                eyre::bail!("failed to open file: {}: error={fd}", path.as_ref().display());
+                eyre::bail!(
+                    "failed to open file: {}: error={fd}",
+                    path.as_ref().display()
+                );
             }
         }
     }
@@ -185,21 +184,9 @@ impl TTY {
     }
     pub fn clear(&mut self, cb: ClearBuffer) -> Result<()> {
         let r = match cb {
-            ClearBuffer::Input => {
-                unsafe {
-                    libc::tcflush(self.fd, libc::TCIFLUSH)
-                }
-            }
-            ClearBuffer::Output => {
-                unsafe {
-                    libc::tcflush(self.fd, libc::TCOFLUSH)
-                }
-            }
-            ClearBuffer::All => {
-                unsafe {
-                    libc::tcflush(self.fd, libc::TCIOFLUSH)
-                }
-            }
+            ClearBuffer::Input => unsafe { libc::tcflush(self.fd, libc::TCIFLUSH) },
+            ClearBuffer::Output => unsafe { libc::tcflush(self.fd, libc::TCOFLUSH) },
+            ClearBuffer::All => unsafe { libc::tcflush(self.fd, libc::TCIOFLUSH) },
         };
         if r == -1 {
             Err(nix::errno::Errno::last().into())
@@ -213,7 +200,7 @@ impl TTY {
         let bytes = {
             let res = unsafe { fionread(self.fd, data.as_mut_ptr())? };
             if res == -1 {
-                return Err(nix::errno::Errno::last().into())
+                return Err(nix::errno::Errno::last().into());
             } else {
                 unsafe { data.assume_init() }
             }
@@ -222,20 +209,15 @@ impl TTY {
     }
 
     /// Returns Ok(n>0) if bytes were read
-    fn _read_timeout(
-        &mut self,
-        buf: &mut [u8],
-        t: Duration,
-    ) -> std::io::Result<usize> {
+    fn _read_timeout(&mut self, buf: &mut [u8], t: Duration) -> std::io::Result<usize> {
         if !self._can_read_timeout(t)? {
-            Err(std::io::Error::new(std::io::ErrorKind::TimedOut,
-                "_read_timeout timed out"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "_read_timeout timed out",
+            ))
         } else {
-            let n = unsafe { libc::read(
-                self.fd,
-                buf.as_mut_ptr() as *mut libc::c_void,
-                buf.len(),
-            ) };
+            let n =
+                unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
             if n == -1 {
                 Err(nix::errno::Errno::last().into())
             } else {
@@ -245,9 +227,7 @@ impl TTY {
         }
     }
 
-    fn _can_write(
-        &mut self,
-    ) -> io::Result<()> {
+    fn _can_write(&mut self) -> io::Result<()> {
         use nix::errno::Errno::{EIO, EPIPE};
 
         let mut fd = PollFd::new(self.fd, PollFlags::POLLOUT);
@@ -257,7 +237,8 @@ impl TTY {
             slice::from_mut(&mut fd),
             // select takes timeout 0 for indefinite block
             // poll takes timeout -1 for indefinite block
-            /*milliseconds as nix::libc::c_int*/-1
+            /*milliseconds as nix::libc::c_int*/
+            -1,
         );
 
         let wait = match wait_res {
@@ -287,10 +268,7 @@ impl TTY {
         Err(io::Error::new(io::ErrorKind::Other, EIO.desc()))
     }
 
-    fn _can_read_timeout(
-        &mut self,
-        t: Duration,
-    ) -> std::io::Result<bool> {
+    fn _can_read_timeout(&mut self, t: Duration) -> std::io::Result<bool> {
         let mut rfds_fake = MaybeUninit::uninit();
         unsafe {
             libc::FD_ZERO(rfds_fake.as_mut_ptr());
@@ -298,15 +276,15 @@ impl TTY {
         }
         let mut rfds = unsafe { rfds_fake.assume_init() };
         let mut timeval = libc::timeval {
-            tv_sec: t.as_secs().try_into()
-                .map_err(|_| std::io::Error::new(
+            tv_sec: t.as_secs().try_into().map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::Unsupported, "invalid timeout: seconds")
+            })?, // c_long
+            tv_usec: t.subsec_micros().try_into().map_err(|_| {
+                std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
-                    "invalid timeout: seconds"
-                ))?, // c_long
-            tv_usec: t.subsec_micros().try_into()
-                .map_err(|_| std::io::Error::new(
-                    std::io::ErrorKind::Unsupported,
-                    "invalid timeout: microseconds"))?, // i32
+                    "invalid timeout: microseconds",
+                )
+            })?, // i32
         };
         let r = unsafe {
             libc::select(
@@ -314,15 +292,13 @@ impl TTY {
                 ptr::addr_of_mut!(rfds),
                 ptr::null_mut(),
                 ptr::null_mut(),
-                ptr::addr_of_mut!(timeval)
+                ptr::addr_of_mut!(timeval),
             )
         };
         if r < 0 {
             Err(nix::errno::Errno::last().into())
         } else {
-            let crt = unsafe {
-                libc::FD_ISSET(self.fd, std::ptr::addr_of!(rfds))
-            };
+            let crt = unsafe { libc::FD_ISSET(self.fd, std::ptr::addr_of!(rfds)) };
             // log::trace!("crt={crt}");
             Ok(crt)
         }
@@ -335,10 +311,7 @@ impl TTY {
         drain: bool,
     ) -> Result<()> {
         let mut tios_fake = MaybeUninit::uninit();
-        let r = libc::tcgetattr(
-            self.fd,
-            tios_fake.as_mut_ptr(),
-        );
+        let r = libc::tcgetattr(self.fd, tios_fake.as_mut_ptr());
         if r != 0 {
             eyre::bail!("failed to tcgetattr: error={r}");
         }
@@ -400,9 +373,9 @@ impl TTY {
         // ignore breaks (staff code had this wrong)
         tios.c_iflag |= libc::IGNBRK;
         // Disable XON/XOFF flow control in both directions
-        tios.c_iflag &= !(libc::IXON|libc::IXOFF|libc::IXANY);
+        tios.c_iflag &= !(libc::IXON | libc::IXOFF | libc::IXANY);
         // Noncanonical mode
-        tios.c_iflag &= !(libc::ICANON|libc::ECHO|libc::ECHOE|libc::ISIG);
+        tios.c_iflag &= !(libc::ICANON | libc::ECHO | libc::ECHOE | libc::ISIG);
 
         // OUTPUT MODES:
         //  c_oflag
@@ -434,7 +407,7 @@ impl TTY {
         tios.c_cflag |= libc::CS8;
         tios.c_cflag &= !(libc::PARENB); // N
         tios.c_cflag &= !(libc::CSTOPB); // 1
-        // disable hardware flow control
+                                         // disable hardware flow control
         tios.c_cflag &= !(libc::CRTSCTS);
         // enable receiver & ignore modem control lines
         tios.c_cflag |= libc::CREAD | libc::CLOCAL;
@@ -481,8 +454,7 @@ impl TTY {
             std::ptr::addr_of!(tios),
         );
         if r != 0 {
-            eyre::bail!("failed to tcsetattr: error={}",
-                nix::errno::Errno::last());
+            eyre::bail!("failed to tcsetattr: error={}", nix::errno::Errno::last());
         }
 
         let speed = baud as libc::speed_t;

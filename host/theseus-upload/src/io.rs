@@ -1,8 +1,8 @@
+use crate::bin_name;
+use crate::tty::TTY;
 use std::io;
 use std::io::ErrorKind;
 use std::process::exit;
-use crate::bin_name;
-use crate::tty::TTY;
 
 fn pipe_error(e: &io::Error) {
     if e.kind() == ErrorKind::BrokenPipe {
@@ -23,7 +23,7 @@ pub trait RW32: io::Write + io::Read {
     }
 
     fn read8(&mut self) -> io::Result<u8> {
-        let mut buf : [u8; 1] = [0];
+        let mut buf: [u8; 1] = [0];
         self.read_exact(&mut buf).inspect_err(pipe_error)?;
         Ok(buf[0])
     }

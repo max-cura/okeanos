@@ -1,6 +1,6 @@
+use crate::arm1176::__dsb;
 use theseus_common::cobs::{BufferedEncoder, EncodeState, PacketEncoder};
 use theseus_common::theseus::MessageClass;
-use crate::arm1176::__dsb;
 
 /// Circular buffer with FIFO semantics. Overlong writes will be truncated.
 #[derive(Debug)]
@@ -59,7 +59,11 @@ impl TransmissionBuffer {
 
     /// Write `bytes` into the buffer at offset `offset`, wrapping if necessary. Will not change
     /// `circle_begin`, `circle_end`, or `circle_len`.
-    fn _write_bytes_at_unchecked(&mut self, offset: usize, bytes: impl IntoIterator<Item=u8>) -> usize {
+    fn _write_bytes_at_unchecked(
+        &mut self,
+        offset: usize,
+        bytes: impl IntoIterator<Item = u8>,
+    ) -> usize {
         let mut cursor = offset;
         for byte in bytes.into_iter() {
             cursor = self._push_byte_at_unchecked(cursor, byte);
@@ -98,13 +102,12 @@ impl TransmissionBuffer {
     }
 
     pub fn reserve(&mut self, n_bytes: usize) -> Option<usize> {
-        (n_bytes <= self.remaining_space())
-            .then(|| {
-                let v = self.circle_end;
-                self.circle_end = self._wrapped_add(self.circle_end, n_bytes).0;
-                self.circle_len += n_bytes;
-                v
-            })
+        (n_bytes <= self.remaining_space()).then(|| {
+            let v = self.circle_end;
+            self.circle_end = self._wrapped_add(self.circle_end, n_bytes).0;
+            self.circle_len += n_bytes;
+            v
+        })
     }
 
     // Methods for removing bytes at circle_begin --------------------------------------------------
@@ -149,11 +152,13 @@ impl TransmissionBuffer {
 
     fn restore(&mut self, from: TransmissionBufferCheckpoint) {
         let TransmissionBufferCheckpoint {
-            circle_begin, circle_end, circle_len
+            circle_begin,
+            circle_end,
+            circle_len,
         } = from;
         self._write_bytes_at_unchecked(
             circle_end,
-            core::iter::repeat_n(0, self.bytes_since_checkpoint(from))
+            core::iter::repeat_n(0, self.bytes_since_checkpoint(from)),
         );
         // self.underlying_storage[self.circle_end..circle_end].iter_mut().for_each(|x| *x = 0);
         self.circle_begin = circle_begin;
@@ -167,24 +172,27 @@ impl TransmissionBuffer {
 pub struct FrameSink {
     transmission_buffer: TransmissionBuffer,
     cobs_encoder: BufferedEncoder<'static>,
-    px_buffer: &'static mut [u8]
+    px_buffer: &'static mut [u8],
 }
 
 impl FrameSink {
     pub fn new(
         transmission_buffer: TransmissionBuffer,
         cobs_encoder: BufferedEncoder<'static>,
-        px_buffer: &'static mut [u8]
-    ) -> Self { Self { transmission_buffer, cobs_encoder, px_buffer } }
+        px_buffer: &'static mut [u8],
+    ) -> Self {
+        Self {
+            transmission_buffer,
+            cobs_encoder,
+            px_buffer,
+        }
+    }
 
-    pub fn _flush_to_fifo(
-        &mut self,
-        uart: &bcm2835_lpa::UART1,
-    ) {
+    pub fn _flush_to_fifo(&mut self, uart: &bcm2835_lpa::UART1) {
         __dsb();
         while let Some(b) = self.transmission_buffer.shift_byte() {
             while uart.stat().read().tx_ready().bit_is_clear() {}
-            uart.io().write(|w| { unsafe { w.data().bits(b) } })
+            uart.io().write(|w| unsafe { w.data().bits(b) })
         }
         __dsb();
     }
@@ -216,10 +224,7 @@ impl FrameWrite for FrameSink {
     // 'b: 'a means that if a concrete lifetime 'z is a valid argument for 'b, it is also a valid
     // argument for 'a, but the reverse doesn't necessarily hold. In essence, 'b is a subset of 'a.
     fn begin_frame(&mut self) -> FrameWriter {
-        FrameWriter::new(
-            &mut self.transmission_buffer,
-            self.cobs_encoder.packet()
-        )
+        FrameWriter::new(&mut self.transmission_buffer, self.cobs_encoder.packet())
     }
 }
 
@@ -247,19 +252,32 @@ impl<'a> FrameWriter<'a> {
         } else {
             (0, false)
         };
-        Self { transmission_buffer, cobs_encoder, checkpoint, len_offset, ok, hasher: crc32fast::Hasher::new() }
+        Self {
+            transmission_buffer,
+            cobs_encoder,
+            checkpoint,
+            len_offset,
+            ok,
+            hasher: crc32fast::Hasher::new(),
+        }
     }
     pub fn add_bytes(&mut self, bytes: &[u8]) {
         self.hasher.update(bytes);
         self._add_bytes_unhashed(bytes);
     }
     fn _add_bytes_unhashed(&mut self, bytes: &[u8]) {
-        if !self.ok { return }
+        if !self.ok {
+            return;
+        }
         for byte in bytes.iter().copied() {
-            if !self.ok { return }
+            if !self.ok {
+                return;
+            }
             match self.cobs_encoder.add_byte(byte) {
                 EncodeState::Buf(buf) => {
-                    if self.ok { self.ok = self.transmission_buffer.extend_from_slice(buf); }
+                    if self.ok {
+                        self.ok = self.transmission_buffer.extend_from_slice(buf);
+                    }
                 }
                 EncodeState::Pass => {}
             }
@@ -284,7 +302,11 @@ impl<'a> FrameWriter<'a> {
         } else {
             self.transmission_buffer._write_bytes_at_unchecked(
                 self.len_offset,
-                theseus_common::theseus::len::encode_len(self.transmission_buffer.bytes_since_checkpoint(self.checkpoint) - 8)
+                theseus_common::theseus::len::encode_len(
+                    self.transmission_buffer
+                        .bytes_since_checkpoint(self.checkpoint)
+                        - 8,
+                ),
             );
         }
         self.ok
@@ -321,7 +343,7 @@ impl FrameSink {
         msg: &T,
     ) -> Result<bool, postcard::Error> {
         let mut fw = FrameWriter::new(&mut self.transmission_buffer, self.cobs_encoder.packet());
-        let mut nbuf = [0;8];
+        let mut nbuf = [0; 8];
         // message type is a varint
         let x = postcard::to_slice(&T::MSG_TYPE, &mut nbuf)
             .map(|x| &x[..])
@@ -340,7 +362,6 @@ impl FrameSink {
         };
         r
     }
-
 }
 
 pub fn send<T: MessageClass + serde::Serialize>(
@@ -369,7 +390,7 @@ pub mod legacy_compat {
         transmission_buffer: &'a mut TransmissionBuffer,
         checkpoint: TransmissionBufferCheckpoint,
         len_offset: usize,
-        ok: bool
+        ok: bool,
     }
 
     impl<'a> LegacyTxWriter<'a> {
@@ -384,7 +405,12 @@ pub mod legacy_compat {
             } else {
                 0
             };
-            Self { transmission_buffer, checkpoint, len_offset, ok }
+            Self {
+                transmission_buffer,
+                checkpoint,
+                len_offset,
+                ok,
+            }
         }
         pub fn finalize(self) -> bool {
             if !self.ok {
@@ -392,8 +418,11 @@ pub mod legacy_compat {
             } else {
                 self.transmission_buffer._write_bytes_at_unchecked(
                     self.len_offset,
-                    (self.transmission_buffer.bytes_since_checkpoint(self.checkpoint) as u32 - 8)
-                        .to_le_bytes()
+                    (self
+                        .transmission_buffer
+                        .bytes_since_checkpoint(self.checkpoint) as u32
+                        - 8)
+                    .to_le_bytes(),
                 );
             }
             self.ok
@@ -409,7 +438,6 @@ pub mod legacy_compat {
         }
     }
 }
-
 
 #[macro_export]
 macro_rules! legacy_print_string {

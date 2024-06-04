@@ -1,17 +1,17 @@
+use crate::reactor::blinken::Blinken;
+use crate::stub::{__symbol_relocation_stub__, __symbol_relocation_stub_end__};
+use bcm2835_lpa::Peripherals;
 use core::alloc::Layout;
 use core::any::Any;
 use core::fmt::Arguments;
-use bcm2835_lpa::Peripherals;
 use lab4_common::muart;
 use lab4_common::reactor::io_theseus::IrDriver;
-use lab4_common::reactor::{Indicators, Io, IoTimeouts, Logger, ProtocolEnum, Reactor};
 use lab4_common::reactor::log_uart1_raw::RawUart1Logger;
 use lab4_common::reactor::protocol_theseus::BootProtocol;
+use lab4_common::reactor::{Indicators, Io, IoTimeouts, Logger, ProtocolEnum, Reactor};
 use lab4_common::relocation::Relocation;
 use muart::__flush_tx;
 use theseus_common::theseus::v1;
-use crate::reactor::blinken::Blinken;
-use crate::stub::{__symbol_relocation_stub__, __symbol_relocation_stub_end__};
 
 // pub mod handshake;
 // mod v1;
@@ -41,27 +41,29 @@ pub fn run() {
 
     let env = lab4_common::reactor::Env {
         __unsafe_program_end__: unsafe {
-            core::ptr::addr_of!(crate::stub::__symbol_exec_end__)
-                as *mut u8
+            core::ptr::addr_of!(crate::stub::__symbol_exec_end__) as *mut u8
         },
         __unsafe_memory_end__: (512 * 1024 * 1024) as *mut u8,
     };
-    let mut reactor = Reactor::new(peri, env)
-        .expect("failed to allocate buffers for Reactor");
+    let mut reactor = Reactor::new(peri, env).expect("failed to allocate buffers for Reactor");
 
     let mut protocol = BootProtocol::new(&mut reactor, final_relocation);
     let mut logger = RawUart1Logger;
     let mut io = IrDriver::new(
         &mut reactor,
-        /* ibuf */Layout::from_size_align(0x10000, 4).unwrap(),
-        /* obuf */Layout::from_size_align(0x10000, 4).unwrap(),
-        /* timeouts */BootProtocol::default_driver_timeouts(),
-    ).expect("failed to allocate buffers for IR driver");
+        /* ibuf */ Layout::from_size_align(0x10000, 4).unwrap(),
+        /* obuf */ Layout::from_size_align(0x10000, 4).unwrap(),
+        /* timeouts */ BootProtocol::default_driver_timeouts(),
+    )
+    .expect("failed to allocate buffers for IR driver");
 
     let indicators = Blink2;
 
     reactor.run(
-        &mut logger, &mut io, &indicators, ProtocolEnum::BootProtocol(protocol),
+        &mut logger,
+        &mut io,
+        &indicators,
+        ProtocolEnum::BootProtocol(protocol),
     );
 }
 
@@ -95,11 +97,7 @@ unsafe fn final_relocation(
     crate::sendln_blocking!("\tcopy bytes={kernel_copy_len}");
     crate::sendln_blocking!("\tentry={kernel_entry:#?}");
 
-    core::ptr::copy(
-        stub_begin as *const u8,
-        stub_dst,
-        stub_len
-    );
+    core::ptr::copy(stub_begin as *const u8, stub_dst, stub_len);
 
     struct NullLog;
     impl Logger for NullLog {

@@ -1,7 +1,7 @@
-use theseus_common::cobs::{BufferedEncoder, EncodeState, PacketEncoder};
-use theseus_common::theseus::MessageClass;
 use crate::arm1176::__dsb;
 use crate::reactor::IoEncode;
+use theseus_common::cobs::{BufferedEncoder, EncodeState, PacketEncoder};
+use theseus_common::theseus::MessageClass;
 
 // Support for checkpointing, to allow rollback of buffer edits if a packet would fully overflow
 
@@ -25,11 +25,15 @@ pub struct CircularBuffer {
 impl CircularBuffer {
     pub(crate) fn view(&self) -> (&[u8], &[u8]) {
         if self.circle_end < self.circle_begin {
-            (&self.underlying_storage[self.circle_begin..],
-            &self.underlying_storage[..self.circle_end])
+            (
+                &self.underlying_storage[self.circle_begin..],
+                &self.underlying_storage[..self.circle_end],
+            )
         } else {
-            (&self.underlying_storage[self.circle_begin..self.circle_end],
-                &[])
+            (
+                &self.underlying_storage[self.circle_begin..self.circle_end],
+                &[],
+            )
         }
     }
 }
@@ -87,7 +91,11 @@ impl CircularBuffer {
 
     /// Write `bytes` into the buffer at offset `offset`, wrapping if necessary. Will not change
     /// `circle_begin`, `circle_end`, or `circle_len`.
-    fn _write_bytes_at_unchecked(&mut self, offset: usize, bytes: impl IntoIterator<Item=u8>) -> usize {
+    fn _write_bytes_at_unchecked(
+        &mut self,
+        offset: usize,
+        bytes: impl IntoIterator<Item = u8>,
+    ) -> usize {
         let mut cursor = offset;
         for byte in bytes.into_iter() {
             cursor = self._push_byte_at_unchecked(cursor, byte);
@@ -127,13 +135,12 @@ impl CircularBuffer {
     }
 
     pub fn reserve(&mut self, n_bytes: usize) -> Option<usize> {
-        (n_bytes <= self.remaining_space())
-            .then(|| {
-                let v = self.circle_end;
-                self.circle_end = self._wrapped_add(self.circle_end, n_bytes).0;
-                self.circle_len += n_bytes;
-                v
-            })
+        (n_bytes <= self.remaining_space()).then(|| {
+            let v = self.circle_end;
+            self.circle_end = self._wrapped_add(self.circle_end, n_bytes).0;
+            self.circle_len += n_bytes;
+            v
+        })
     }
 
     // Methods for removing bytes at circle_begin --------------------------------------------------
@@ -169,25 +176,24 @@ impl CircularBuffer {
 
     fn restore(&mut self, from: BufferCheckpoint) {
         let BufferCheckpoint {
-            circle_begin, circle_end, circle_len
+            circle_begin,
+            circle_end,
+            circle_len,
         } = from;
         self._write_bytes_at_unchecked(
             circle_end,
-            core::iter::repeat_n(0, self.bytes_since_checkpoint(from))
+            core::iter::repeat_n(0, self.bytes_since_checkpoint(from)),
         );
         self.circle_begin = circle_begin;
         self.circle_end = circle_end;
         self.circle_len = circle_len;
     }
 
-    pub fn _flush_to_uart1_fifo(
-        &mut self,
-        uart: &bcm2835_lpa::UART1,
-    ) {
+    pub fn _flush_to_uart1_fifo(&mut self, uart: &bcm2835_lpa::UART1) {
         __dsb();
         while let Some(b) = self.shift_byte() {
             while uart.stat().read().tx_ready().bit_is_clear() {}
-            uart.io().write(|w| { unsafe { w.data().bits(b) } })
+            uart.io().write(|w| unsafe { w.data().bits(b) })
         }
         __dsb();
     }
@@ -198,15 +204,21 @@ impl CircularBuffer {
 pub struct FrameSink {
     transmission_buffer: CircularBuffer,
     cobs_encoder: BufferedEncoder<'static>,
-    px_buffer: &'static mut [u8]
+    px_buffer: &'static mut [u8],
 }
 
 impl FrameSink {
     pub fn new(
         transmission_buffer: CircularBuffer,
         cobs_encoder: BufferedEncoder<'static>,
-        px_buffer: &'static mut [u8]
-    ) -> Self { Self { transmission_buffer, cobs_encoder, px_buffer } }
+        px_buffer: &'static mut [u8],
+    ) -> Self {
+        Self {
+            transmission_buffer,
+            cobs_encoder,
+            px_buffer,
+        }
+    }
 
     // pub fn _flush_to_uart1_fifo(
     //     &mut self,
@@ -223,15 +235,11 @@ impl FrameSink {
     }
 }
 
-
 impl FrameSink {
-    pub fn send_dyn(
-        &mut self,
-        msg: &dyn IoEncode
-    ) -> Result<bool, postcard::Error> {
+    pub fn send_dyn(&mut self, msg: &dyn IoEncode) -> Result<bool, postcard::Error> {
         let typ = msg.encode_type();
         let mut fw = FrameWriter::new(&mut self.transmission_buffer, self.cobs_encoder.packet());
-        let mut nbuf = [0;8];
+        let mut nbuf = [0; 8];
         // message type is a varint
         let x = postcard::to_slice(&msg.encode_type(), &mut nbuf)
             .map(|x| &x[..])
@@ -256,7 +264,7 @@ impl FrameSink {
         msg: &T,
     ) -> Result<bool, postcard::Error> {
         let mut fw = FrameWriter::new(&mut self.transmission_buffer, self.cobs_encoder.packet());
-        let mut nbuf = [0;8];
+        let mut nbuf = [0; 8];
         // message type is a varint
         let x = postcard::to_slice(&T::MSG_TYPE, &mut nbuf)
             .map(|x| &x[..])
@@ -289,10 +297,7 @@ impl FrameWrite for FrameSink {
     // 'b: 'a means that if a concrete lifetime 'z is a valid argument for 'b, it is also a valid
     // argument for 'a, but the reverse doesn't necessarily hold. In essence, 'b is a subset of 'a.
     fn begin_frame(&mut self) -> FrameWriter {
-        FrameWriter::new(
-            &mut self.transmission_buffer,
-            self.cobs_encoder.packet()
-        )
+        FrameWriter::new(&mut self.transmission_buffer, self.cobs_encoder.packet())
     }
 }
 
@@ -320,19 +325,32 @@ impl<'a> FrameWriter<'a> {
         } else {
             (0, false)
         };
-        Self { transmission_buffer, cobs_encoder, checkpoint, len_offset, ok, hasher: crc32fast::Hasher::new() }
+        Self {
+            transmission_buffer,
+            cobs_encoder,
+            checkpoint,
+            len_offset,
+            ok,
+            hasher: crc32fast::Hasher::new(),
+        }
     }
     pub fn add_bytes(&mut self, bytes: &[u8]) {
         self.hasher.update(bytes);
         self._add_bytes_unhashed(bytes);
     }
     fn _add_bytes_unhashed(&mut self, bytes: &[u8]) {
-        if !self.ok { return }
+        if !self.ok {
+            return;
+        }
         for byte in bytes.iter().copied() {
-            if !self.ok { return }
+            if !self.ok {
+                return;
+            }
             match self.cobs_encoder.add_byte(byte) {
                 EncodeState::Buf(buf) => {
-                    if self.ok { self.ok = self.transmission_buffer.extend_from_slice(buf); }
+                    if self.ok {
+                        self.ok = self.transmission_buffer.extend_from_slice(buf);
+                    }
                 }
                 EncodeState::Pass => {}
             }
@@ -357,7 +375,11 @@ impl<'a> FrameWriter<'a> {
         } else {
             self.transmission_buffer._write_bytes_at_unchecked(
                 self.len_offset,
-                theseus_common::theseus::len::encode_len(self.transmission_buffer.bytes_since_checkpoint(self.checkpoint) - 8)
+                theseus_common::theseus::len::encode_len(
+                    self.transmission_buffer
+                        .bytes_since_checkpoint(self.checkpoint)
+                        - 8,
+                ),
             );
         }
         self.ok
@@ -366,7 +388,6 @@ impl<'a> FrameWriter<'a> {
         self.transmission_buffer.restore(self.checkpoint);
     }
 }
-
 
 impl core::fmt::Write for CircularBuffer {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {

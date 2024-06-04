@@ -17,7 +17,8 @@ __symbol_exec_end__
 
 SECTIONS {
     /* 0x8000 is a sort of standardized location at which stuff is loaded.
-     * Being as such, it is the location that our bootloader(s) default to.
+     *
+     * We instead use 0xc000;
      */
     .text 0xc000 : {
         __symbol_exec_start__ = .;

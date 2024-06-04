@@ -1,18 +1,22 @@
+use crate::reactor::{
+    Io, IoEncode, IoEncodeMarker, IoTimeoutsRelative, Logger, Protocol, ProtocolFlow, Reactor,
+};
+use crate::timing::Instant;
 use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use serde::Deserialize;
-use theseus_common::theseus::{MessageTypeType, v1};
 use theseus_common::theseus::v1::host;
-use crate::reactor::{Io, IoEncode, IoEncodeMarker, IoTimeoutsRelative, Logger, Protocol, ProtocolFlow, Reactor};
-use crate::timing::Instant;
+use theseus_common::theseus::{v1, MessageTypeType};
 
 mod timeouts {
     use crate::timeouts::RateRelativeTimeout;
 
-    pub const ERROR_RECOVERY : RateRelativeTimeout = RateRelativeTimeout::from_bytes(12);
-    pub const BYTE_READ : RateRelativeTimeout = RateRelativeTimeout::from_bytes(2);
-    pub const SESSION_EXPIRES : RateRelativeTimeout = RateRelativeTimeout::from_bytes(12288 /* 0x3000 */);
-    pub const SESSION_EXPIRES_LONG : RateRelativeTimeout = super::super::protocol_theseus::timeouts::SESSION_EXPIRES_LONG;
+    pub const ERROR_RECOVERY: RateRelativeTimeout = RateRelativeTimeout::from_bytes(12);
+    pub const BYTE_READ: RateRelativeTimeout = RateRelativeTimeout::from_bytes(2);
+    pub const SESSION_EXPIRES: RateRelativeTimeout =
+        RateRelativeTimeout::from_bytes(12288 /* 0x3000 */);
+    pub const SESSION_EXPIRES_LONG: RateRelativeTimeout =
+        super::super::protocol_theseus::timeouts::SESSION_EXPIRES_LONG;
 }
 
 #[derive(Clone, Debug)]
@@ -47,7 +51,10 @@ pub struct ChunkConfig {
 }
 impl ChunkConfig {
     pub fn new() -> Self {
-        Self { chunk_size: 0, num_compressed_chunks: 0 }
+        Self {
+            chunk_size: 0,
+            num_compressed_chunks: 0,
+        }
     }
     pub fn update(&mut self, chunk_size: usize, program: &Program) {
         self.chunk_size = chunk_size;
@@ -81,10 +88,7 @@ pub struct RelayProtocol {
 }
 
 impl RelayProtocol {
-    pub fn new(
-        _reactor: &mut Reactor,
-        program: Program<'static>,
-    ) -> Self {
+    pub fn new(_reactor: &mut Reactor, program: Program<'static>) -> Self {
         Self {
             program,
             active_chunk_config: ChunkConfig::new(),
@@ -96,7 +100,7 @@ impl RelayProtocol {
         IoTimeoutsRelative {
             error_recovery: timeouts::ERROR_RECOVERY,
             byte_read_timeout: timeouts::BYTE_READ,
-            session_timeout: None, //timeouts::SESSION_EXPIRES,
+            session_timeout: None,      //timeouts::SESSION_EXPIRES,
             session_timeout_long: None, //timeouts::SESSION_EXPIRES_LONG,
         }
     }
@@ -107,18 +111,31 @@ impl<'a> IoEncodeMarker for v1::host::Chunk<'a> {}
 impl IoEncodeMarker for v1::host::ProgramInfo {}
 
 impl Protocol for RelayProtocol {
-    fn protocol_handle(&mut self, reactor: &mut Reactor, logger: &mut dyn Logger, msg: &[u8]) -> ProtocolFlow {
+    fn protocol_handle(
+        &mut self,
+        reactor: &mut Reactor,
+        logger: &mut dyn Logger,
+        msg: &[u8],
+    ) -> ProtocolFlow {
         let (typ, data) = match postcard::take_from_bytes::<MessageTypeType>(msg) {
             Ok(x) => x,
             Err(e) => {
-                let _ = logger.writeln_fmt(reactor, format_args!("[device:v1]: failed to deserialize message type: {e}"));
-                return ProtocolFlow::Abcon
+                let _ = logger.writeln_fmt(
+                    reactor,
+                    format_args!("[device:v1]: failed to deserialize message type: {e}"),
+                );
+                return ProtocolFlow::Abcon;
             }
         };
         self.handle_packet(reactor, logger, typ, data)
     }
 
-    fn protocol_heartbeat(&mut self, reactor: &mut Reactor, io: &mut dyn Io, logger: &mut dyn Logger) -> ProtocolFlow {
+    fn protocol_heartbeat(
+        &mut self,
+        reactor: &mut Reactor,
+        io: &mut dyn Io,
+        logger: &mut dyn Logger,
+    ) -> ProtocolFlow {
         // if self.heartbeat.elapsed(&reactor.peri.SYSTMR) > Duration::from_millis(1000) {
         //     // io.io_queue_message(reactor, logger, &v1::host::ProgramReady);
         //     self.heartbeat = Instant::now(&reactor.peri.SYSTMR);
@@ -142,21 +159,35 @@ impl RelayProtocol {
         reactor: &mut Reactor,
         logger: &mut dyn Logger,
         mtt: MessageTypeType,
-        msg_data: &[u8]
+        msg_data: &[u8],
     ) -> ProtocolFlow {
-        fn resolve<T: for <'a> Deserialize<'a>>(reactor: &mut Reactor, logger: &mut dyn Logger, bytes: &[u8]) -> Option<T> {
+        fn resolve<T: for<'a> Deserialize<'a>>(
+            reactor: &mut Reactor,
+            logger: &mut dyn Logger,
+            bytes: &[u8],
+        ) -> Option<T> {
             match postcard::from_bytes(&bytes) {
                 Ok(x) => Some(x),
                 Err(e) => {
-                    let _ = logger.writeln_fmt(reactor, format_args!("[relay]: Deserialization error: {e} on bytes: {bytes:?}, ignoring."));
+                    let _ = logger.writeln_fmt(
+                        reactor,
+                        format_args!(
+                            "[relay]: Deserialization error: {e} on bytes: {bytes:?}, ignoring."
+                        ),
+                    );
                     None
                 }
             }
         }
         match mtt {
             v1::MSG_REQUEST_PROGRAM_INFO => {
-                if let Some(rpi) = resolve::<v1::device::RequestProgramInfo>(reactor, logger, msg_data) {
-                    logger.writeln_fmt(reactor, format_args!("[relay]: Received RequestProgramInfo"));
+                if let Some(rpi) =
+                    resolve::<v1::device::RequestProgramInfo>(reactor, logger, msg_data)
+                {
+                    logger.writeln_fmt(
+                        reactor,
+                        format_args!("[relay]: Received RequestProgramInfo"),
+                    );
                     self.send = Some(SendMessage::ProgramInfo(host::ProgramInfo {
                         load_at_addr: self.program.load_at_address as u32,
                         compressed_len: self.program.compressed_len as u32,
@@ -170,15 +201,29 @@ impl RelayProtocol {
                 if let Some(rp) = resolve::<v1::device::RequestProgram>(reactor, logger, msg_data) {
                     logger.writeln_fmt(reactor, format_args!("[relay]: Received RequestProgram"));
                     let compressed_crc_ok = rp.verify_compressed_crc == self.program.compressed_crc;
-                    let decompressed_crc_ok = rp.verify_decompressed_crc == self.program.decompressed_crc;
+                    let decompressed_crc_ok =
+                        rp.verify_decompressed_crc == self.program.decompressed_crc;
                     if !compressed_crc_ok {
-                        logger.writeln_fmt(reactor, format_args!("[relay]: Compressed CRC mismatch: expected {} received {}", self.program.compressed_crc, rp.verify_compressed_crc));
+                        logger.writeln_fmt(
+                            reactor,
+                            format_args!(
+                                "[relay]: Compressed CRC mismatch: expected {} received {}",
+                                self.program.compressed_crc, rp.verify_compressed_crc
+                            ),
+                        );
                     }
                     if !decompressed_crc_ok {
-                        logger.writeln_fmt(reactor, format_args!("[relay]: Decompressed CRC mismatch: expected {} received {}", self.program.decompressed_crc, rp.verify_decompressed_crc));
+                        logger.writeln_fmt(
+                            reactor,
+                            format_args!(
+                                "[relay]: Decompressed CRC mismatch: expected {} received {}",
+                                self.program.decompressed_crc, rp.verify_decompressed_crc
+                            ),
+                        );
                     }
                     if compressed_crc_ok && decompressed_crc_ok {
-                        self.active_chunk_config.update(rp.chunk_size as usize, &self.program);
+                        self.active_chunk_config
+                            .update(rp.chunk_size as usize, &self.program);
                         // progress bar init
                         self.send = Some(SendMessage::ProgramReady(host::ProgramReady));
                     } else {
@@ -190,7 +235,8 @@ impl RelayProtocol {
                 if let Some(rc) = resolve::<v1::device::RequestChunk>(reactor, logger, msg_data) {
                     logger.writeln_fmt(reactor, format_args!("[relay]: Received RequestChunk"));
                     let chunk_begin = rc.chunk_no as usize * self.active_chunk_config.chunk_size;
-                    let chunk_end = (chunk_begin + self.active_chunk_config.chunk_size).min(self.program.binary.len());
+                    let chunk_end = (chunk_begin + self.active_chunk_config.chunk_size)
+                        .min(self.program.binary.len());
 
                     // progress bar update
 
@@ -201,10 +247,16 @@ impl RelayProtocol {
                 }
             }
             v1::MSG_BOOTING => {
-                logger.writeln_fmt(reactor, format_args!("[relay]: Device booted successfully!"));
+                logger.writeln_fmt(
+                    reactor,
+                    format_args!("[relay]: Device booted successfully!"),
+                );
             }
             _ => {
-                logger.writeln_fmt(reactor, format_args!("[relay]: Unrecognized message type: {mtt}, ignoring."));
+                logger.writeln_fmt(
+                    reactor,
+                    format_args!("[relay]: Unrecognized message type: {mtt}, ignoring."),
+                );
             }
         }
         ProtocolFlow::Continue

@@ -1,21 +1,21 @@
+use crate::arm1176::__dsb;
+use crate::heap::bump::BumpHeap;
+use crate::reactor::circular_buffer::CircularBuffer;
+use bcm2835_lpa::Peripherals;
 use core::alloc::Layout;
 use core::any::Any;
 use core::fmt::{Debug, Formatter};
 use core::intrinsics::unlikely;
 use core::mem::MaybeUninit;
-use bcm2835_lpa::Peripherals;
-use enum_dispatch::enum_dispatch;
 use core::time::Duration;
-use crate::arm1176::__dsb;
-use crate::heap::bump::BumpHeap;
-use crate::reactor::circular_buffer::CircularBuffer;
+use enum_dispatch::enum_dispatch;
 
 pub mod circular_buffer;
-pub mod receive_buffer;
 pub mod io_theseus;
-pub mod protocol_theseus;
 pub mod log_uart1_raw;
 pub mod protocol_relay;
+pub mod protocol_theseus;
+pub mod receive_buffer;
 
 // Logger, Io, Protocol, Reactor
 // Protocol is switched by the reactor
@@ -24,17 +24,13 @@ pub mod protocol_relay;
 // There is reactor-level shared state
 
 pub trait Logger {
-    fn writeln_fmt(
-        &mut self,
-        reactor: &mut Reactor,
-        args: core::fmt::Arguments
-    );
+    fn writeln_fmt(&mut self, reactor: &mut Reactor, args: core::fmt::Arguments);
     fn write_fmt(&mut self, reactor: &mut Reactor, args: core::fmt::Arguments);
 }
 
 pub trait IoEncode: Debug {
     fn encode_type(&self) -> u32;
-    fn encode_to_slice<'a,'b>(&'b self, buf: &'a mut [u8]) -> postcard::Result<&'a mut [u8]>;
+    fn encode_to_slice<'a, 'b>(&'b self, buf: &'a mut [u8]) -> postcard::Result<&'a mut [u8]>;
     fn proxied_debug(&self) -> &dyn Debug;
 }
 
@@ -63,23 +59,31 @@ pub struct IoTimeoutsRelative {
 
 impl IoTimeoutsRelative {
     pub const fn with_ir(self) -> IoTimeouts {
-        let Self { error_recovery, byte_read_timeout, session_timeout, session_timeout_long } = self;
+        let Self {
+            error_recovery,
+            byte_read_timeout,
+            session_timeout,
+            session_timeout_long,
+        } = self;
         IoTimeouts {
             error_recovery: error_recovery.with_ir(),
             byte_read_timeout: byte_read_timeout.with_ir(),
             session_timeout: {
                 match (session_timeout, session_timeout_long) {
                     (None, None) => None,
-                    (Some(st), Some(stl)) => {
-                        Some(SessionTimeout { normal: st.with_ir(), long: stl.with_ir(), use_long: false })
-                    }
-                    (Some(st), None) | (None, Some(st)) => {
-                        Some(SessionTimeout { normal: st.with_ir(), long: st.with_ir(), use_long: false })
-                    }
+                    (Some(st), Some(stl)) => Some(SessionTimeout {
+                        normal: st.with_ir(),
+                        long: stl.with_ir(),
+                        use_long: false,
+                    }),
+                    (Some(st), None) | (None, Some(st)) => Some(SessionTimeout {
+                        normal: st.with_ir(),
+                        long: st.with_ir(),
+                        use_long: false,
+                    }),
                 }
-            }
-            // session_timeout_long: session_timeout_long.map(RateRelativeTimeout::with_ir),
-            // use_long_timeout: false,
+            }, // session_timeout_long: session_timeout_long.map(RateRelativeTimeout::with_ir),
+               // use_long_timeout: false,
         }
     }
 }
@@ -102,7 +106,7 @@ pub struct IoTimeouts {
 }
 
 pub trait IoImpl: Io {
-    const DRIVES_UART : bool;
+    const DRIVES_UART: bool;
 }
 
 /// This trait handles sending and receiving messages using some encoding.
@@ -113,11 +117,7 @@ pub trait Io: Any {
         use_long_timeout: Option<bool>,
     );
 
-    fn io_reset(
-        &mut self,
-        reactor: &mut Reactor,
-        logger: &mut dyn Logger,
-    );
+    fn io_reset(&mut self, reactor: &mut Reactor, logger: &mut dyn Logger);
 
     fn io_queue_message(
         &mut self,
@@ -133,10 +133,7 @@ pub trait Io: Any {
         indicators: &dyn Indicators,
     ) -> Result<Option<&[u8]>, ProtocolFlow>;
 
-    fn io_flush_blocking(
-        &mut self,
-        reactor: &mut Reactor,
-    );
+    fn io_flush_blocking(&mut self, reactor: &mut Reactor);
 }
 
 // struct FakeIo;
@@ -175,11 +172,11 @@ pub enum ProtocolFlow {
     SwitchProtocol(ProtocolEnum),
 }
 
-use protocol_theseus::BootProtocol;
-use protocol_relay::RelayProtocol;
-use theseus_common::theseus::{MessageClass, MessageTypeType};
 use crate::sendln_blocking;
 use crate::timeouts::RateRelativeTimeout;
+use protocol_relay::RelayProtocol;
+use protocol_theseus::BootProtocol;
+use theseus_common::theseus::{MessageClass, MessageTypeType};
 
 #[enum_dispatch]
 #[derive(Debug, Clone)]
@@ -226,10 +223,12 @@ pub struct Env {
     pub __unsafe_memory_end__: *mut u8,
 }
 
-const UART_BUFFER_LAYOUT : Layout = unsafe { Layout::from_size_align_unchecked(
-    0x10_000, // 65536
-    4
-) };
+const UART_BUFFER_LAYOUT: Layout = unsafe {
+    Layout::from_size_align_unchecked(
+        0x10_000, // 65536
+        4,
+    )
+};
 
 pub struct Reactor {
     pub peri: Peripherals,
@@ -263,14 +262,8 @@ enum IoCondition {
 }
 
 impl Reactor {
-    pub fn new(
-        peripherals: Peripherals,
-        env: Env,
-    ) -> Option<Self> {
-        let mut heap = BumpHeap::new(
-            env.__unsafe_program_end__,
-            env.__unsafe_memory_end__,
-        );
+    pub fn new(peripherals: Peripherals, env: Env) -> Option<Self> {
+        let mut heap = BumpHeap::new(env.__unsafe_program_end__, env.__unsafe_memory_end__);
         let uart_cb_ptr = heap.allocate(UART_BUFFER_LAYOUT)?;
         let uart_cb_mu = unsafe { uart_cb_ptr.as_uninit_slice_mut::<'static>() };
         for i in 0..uart_cb_mu.len() {
@@ -293,7 +286,7 @@ impl Reactor {
         logger: &mut LOG,
         io: &mut IO,
         indicators: &IND,
-        initial_protocol: ProtocolEnum
+        initial_protocol: ProtocolEnum,
     ) {
         let mut protocol = initial_protocol.clone();
 
@@ -309,9 +302,7 @@ impl Reactor {
                     if let Some(b) = self.uart_buffer.shift_byte() {
                         // sendln_blocking!("wrote byte {b}, LBE={:?}",
                         //     self.uart_buffer.circle());
-                        self.peri.UART1.io().write(|w| {
-                            unsafe { w.data().bits(b) }
-                        });
+                        self.peri.UART1.io().write(|w| unsafe { w.data().bits(b) });
                     }
                 }
 
@@ -322,9 +313,7 @@ impl Reactor {
                 // message received
                 Ok(Some(msg)) => {
                     match protocol.protocol_handle(self, logger, msg) {
-                        ProtocolFlow::Continue => {
-                            /* ignore */
-                        }
+                        ProtocolFlow::Continue => { /* ignore */ }
                         ProtocolFlow::Abcon => {
                             io.io_reset(self, logger);
                         }
@@ -336,17 +325,20 @@ impl Reactor {
                             protocol = p_new;
                         }
                     }
-                },
+                }
                 // status normal
-                Ok(None) => {},
+                Ok(None) => {}
                 Err(ProtocolFlow::Abend) => {
                     protocol = initial_protocol.clone();
-                },
+                }
                 Err(e) => { /* ignore */ }
             }
 
             if unlikely(self.set_session_timeout.is_some()) {
-                io.io_set_timeouts(None, core::mem::replace(&mut self.set_session_timeout, None));
+                io.io_set_timeouts(
+                    None,
+                    core::mem::replace(&mut self.set_session_timeout, None),
+                );
             }
 
             protocol.protocol_heartbeat(self, io, logger);

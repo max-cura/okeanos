@@ -1,11 +1,11 @@
 // TSOP (in) pin is 13
 // TSAL (out) pin is 12
 
-use core::time::Duration;
-use bcm2835_lpa::{CM_PWM, GPIO, Peripherals, PWM0, SYSTMR};
 use crate::arm1176::__dsb;
-use crate::{send_blocking, sendln_blocking};
 use crate::timing::{delay_micros, Instant};
+use crate::{send_blocking, sendln_blocking};
+use bcm2835_lpa::{Peripherals, CM_PWM, GPIO, PWM0, SYSTMR};
+use core::time::Duration;
 
 // 40/80 = 40 optical cycles
 // const BURST_PWM_DUTY: u32 = 40;
@@ -36,7 +36,7 @@ pub const PDC_BIT_DURATION: Duration = Duration::from_nanos(PDC_BIT_DURATION_NAN
 //  1 BIT = BURST of 20  then quiet for 80 cycles
 //  0 BIT = BURST of 40 then quiet for 60 cycles
 
-const XMIT_FIFO_LEN : usize = 8;
+const XMIT_FIFO_LEN: usize = 8;
 
 pub struct IrTransmitter {
     fifo: [u8; XMIT_FIFO_LEN],
@@ -71,10 +71,7 @@ impl IrTransmitter {
         self.fifo_len < XMIT_FIFO_LEN
     }
 
-    pub fn try_push(
-        &mut self,
-        byte: u8
-    ) -> bool {
+    pub fn try_push(&mut self, byte: u8) -> bool {
         if self.fifo_len < XMIT_FIFO_LEN {
             self.fifo_len += 1;
             self.fifo[self.fifo_front] = byte;
@@ -88,11 +85,7 @@ impl IrTransmitter {
         }
     }
 
-    pub fn tick(
-        &mut self,
-        pwm: &PWM0,
-        st: &SYSTMR,
-    ) -> bool {
+    pub fn tick(&mut self, pwm: &PWM0, st: &SYSTMR) -> bool {
         // __dsb();
         // let t = pwm.sta().read().sta1().bit_is_set();
         // __dsb();
@@ -106,20 +99,19 @@ impl IrTransmitter {
 
         let elapsed = self.last_burst_began.elapsed(st);
 
-        if self.tx_on && elapsed >= self.high_for
-        {
+        if self.tx_on && elapsed >= self.high_for {
             self.tx_on = false;
             burst_pwm_disable(pwm);
             // sendln_blocking!("0");
         }
 
         if self.fifo_len == 0 {
-            return false
+            return false;
         }
 
         if elapsed < PDC_BIT_DURATION {
-        // if elapsed < self.before_next_burst {
-            return true
+            // if elapsed < self.before_next_burst {
+            return true;
         }
 
         let byte = self.fifo[self.fifo_back];
@@ -146,20 +138,20 @@ impl IrTransmitter {
             pwm_queue(pwm, 0xaaaa_aaaa); // 16
             pwm_queue(pwm, 0x0000_00aa); // 4
             pwm_queue(pwm, 0x0000_0000); // 0
-            // for _ in 0..PDC_ONE_PULSE_COUNT {
-            //     burst_queue_push(pwm);
-            // }
-            // burst_queue_silence(pwm);
+                                         // for _ in 0..PDC_ONE_PULSE_COUNT {
+                                         //     burst_queue_push(pwm);
+                                         // }
+                                         // burst_queue_silence(pwm);
             self.high_for = PDC_ONE_PULSE_DURATION;
             // self.before_next_burst = PDC_ONE_SILENCE;
         } else {
             pwm_queue(pwm, 0xaaaa_aaaa); // 16
             pwm_queue(pwm, 0xaaaa_aaaa); // 16
             pwm_queue(pwm, 0x0000_aaaa); // 8
-            // for _ in 0..PDC_ZERO_PULSE_COUNT {
-            //     burst_queue_push(pwm);
-            // }
-            // burst_queue_silence(pwm);
+                                         // for _ in 0..PDC_ZERO_PULSE_COUNT {
+                                         //     burst_queue_push(pwm);
+                                         // }
+                                         // burst_queue_silence(pwm);
             self.high_for = PDC_ZERO_PULSE_DURATION;
             // self.before_next_burst = PDC_ZERO_SILENCE;
         }
@@ -201,15 +193,16 @@ pub enum IrRecvError {
     UnexpectedFallingEdge,
 }
 
-const RX_LBB_JITTER_NANOS : u64 = CYCLE_DURATION_NANOS * 10;
+const RX_LBB_JITTER_NANOS: u64 = CYCLE_DURATION_NANOS * 10;
 // jitter in bit gap: 15cy-7cy=8cy since jitter is from falling edge delay, add 25%
 #[allow(dead_code)]
-const RX_LBB_JITTER : Duration = Duration::from_nanos(RX_LBB_JITTER_NANOS);
+const RX_LBB_JITTER: Duration = Duration::from_nanos(RX_LBB_JITTER_NANOS);
 // jitter in pulse length: ±6cy, add 33%
-const RX_PULSE_JITTER : Duration = Duration::from_nanos(CYCLE_DURATION_NANOS * 8);
+const RX_PULSE_JITTER: Duration = Duration::from_nanos(CYCLE_DURATION_NANOS * 8);
 
 const MIN_BIT_GAP: Duration = Duration::from_nanos(PDC_BIT_DURATION_NANOS - RX_LBB_JITTER_NANOS);
-const MAX_BIT_GAP: Duration = Duration::from_nanos(PDC_BIT_DURATION_NANOS + 3 * RX_LBB_JITTER_NANOS);
+const MAX_BIT_GAP: Duration =
+    Duration::from_nanos(PDC_BIT_DURATION_NANOS + 3 * RX_LBB_JITTER_NANOS);
 
 macro_rules! dump_timing {
     [$($i:ident),*] => {
@@ -263,18 +256,17 @@ impl IrReceiver {
         // IrReceiver::tick()'s caller will take care of error timeouts
     }
 
-    pub fn tick<'b>(
-        &mut self,
-        gpio: &GPIO,
-        st: &SYSTMR,
-    ) -> Result<Option<u8>, IrRecvError> {
+    pub fn tick<'b>(&mut self, gpio: &GPIO, st: &SYSTMR) -> Result<Option<u8>, IrRecvError> {
         let elapsed = self.last_burst_began.elapsed(st);
 
-        let res : Result<Option<u8>, IrRecvError> = try {
+        let res: Result<Option<u8>, IrRecvError> = try {
             __dsb();
 
             if gpio.gpeds0().read().eds13().bit_is_set() {
-                unsafe { gpio.gpeds0().write_with_zero(|w| w.eds13().clear_bit_by_one()) }
+                unsafe {
+                    gpio.gpeds0()
+                        .write_with_zero(|w| w.eds13().clear_bit_by_one())
+                }
 
                 if self.in_error {
                     __dsb();
@@ -372,19 +364,11 @@ impl IrReceiver {
     }
 }
 
-pub fn init(
-    gpio: &GPIO,
-    pwm: &PWM0,
-    cm_pwm: &CM_PWM,
-    st: &SYSTMR,
-) {
+pub fn init(gpio: &GPIO, pwm: &PWM0, cm_pwm: &CM_PWM, st: &SYSTMR) {
     __dsb();
 
-    gpio.gpfsel1().modify(|_, w| {
-        w
-            .fsel12().pwm0_0()
-            .fsel13().input()
-    });
+    gpio.gpfsel1()
+        .modify(|_, w| w.fsel12().pwm0_0().fsel13().input());
 
     // detect only FEN and REN
     gpio.gpafen0().modify(|_, w| w.afen13().clear_bit());
@@ -393,14 +377,16 @@ pub fn init(
     gpio.gphen0().modify(|_, w| w.hen13().clear_bit());
     gpio.gpren0().modify(|_, w| w.ren13().set_bit());
     gpio.gpfen0().modify(|_, w| w.fen13().set_bit());
-    unsafe { gpio.gpeds0().write_with_zero(|w| w.eds13().clear_bit_by_one()); }
+    unsafe {
+        gpio.gpeds0()
+            .write_with_zero(|w| w.eds13().clear_bit_by_one());
+    }
 
     __dsb();
 
     cm_pwm.cs().write(|w| {
-        w.passwd().passwd()
-            .src().xosc() // 19.2 MHz
-            // .src().pllc() // 500 MHz
+        w.passwd().passwd().src().xosc() // 19.2 MHz
+                                         // .src().pllc() // 500 MHz
     });
 
     // SAFETY: pre- and post-DSB from delay_micros
@@ -419,18 +405,23 @@ pub fn init(
             // 13.16us = 252 + 716.8/1024
             // divi=252, divf=717
             // close enough
-            w
-                .passwd().passwd()
+            w.passwd()
+                .passwd()
                 // .divi().bits(4095)
-                .divi().bits(252)
-                .divf().bits(717)
+                .divi()
+                .bits(252)
+                .divf()
+                .bits(717)
         }
     });
     cm_pwm.cs().write(|w| {
-        w.passwd().passwd()
+        w.passwd()
+            .passwd()
             // .src().pllc() // 500 MHz
-            .src().xosc() // 19.2 MHz
-            .enab().set_bit()
+            .src()
+            .xosc() // 19.2 MHz
+            .enab()
+            .set_bit()
     });
 
     __dsb();
@@ -451,27 +442,36 @@ pub fn init(
         unsafe { w.bits(32) }
     });
     pwm.ctl().modify(|_, w| {
-        w
-            .msen1().clear_bit()
+        w.msen1()
+            .clear_bit()
             // clear fifos
-            .clrf1().set_bit()
+            .clrf1()
+            .set_bit()
             // use fifos
-            .usef1().set_bit()
+            .usef1()
+            .set_bit()
             // normal polarity 1=HI 0=LO
-            .pola1().clear_bit()
+            .pola1()
+            .clear_bit()
             // write 0 when no transmission
-            .sbit1().clear_bit()
-            .rptl1().clear_bit()
+            .sbit1()
+            .clear_bit()
+            .rptl1()
+            .clear_bit()
             // use PWM instead of serializer
             // .mode1().pwm()
-            .mode1().serial()
+            .mode1()
+            .serial()
             // enable only PWM Channel 1
             // .pwen1().clear_bit()
-            .pwen1().set_bit()
+            .pwen1()
+            .set_bit()
             // .pwen1().clear_bit()
-            .pwen2().clear_bit()
+            .pwen2()
+            .clear_bit()
     });
-    pwm.sta().modify(|_, w| w.sta1().set_bit().berr().clear_bit());
+    pwm.sta()
+        .modify(|_, w| w.sta1().set_bit().berr().clear_bit());
 
     // don't do this: causes a bus error?
     // pwm.ctl().modify(|_, w| {
@@ -481,37 +481,27 @@ pub fn init(
     __dsb();
 }
 
-fn burst_pwm_enable(
-    pwm: &PWM0
-) {
+fn burst_pwm_enable(pwm: &PWM0) {
     __dsb();
 
     // sendln_blocking!("E{:?}", pwm.ctl().read());
 
-    pwm.ctl().modify(|_, w| {
-        w.pwen1().set_bit()
-    });
+    pwm.ctl().modify(|_, w| w.pwen1().set_bit());
 
     __dsb();
 }
 
-fn burst_pwm_disable(
-    pwm: &PWM0
-) {
+fn burst_pwm_disable(pwm: &PWM0) {
     __dsb();
 
     // sendln_blocking!("D{:?}", pwm.ctl().read());
 
-    pwm.ctl().modify(|_, w| {
-        w.pwen1().clear_bit()
-    });
+    pwm.ctl().modify(|_, w| w.pwen1().clear_bit());
 
     __dsb();
 }
 
-fn burst_queue_flush(
-    pwm: &PWM0
-) {
+fn burst_queue_flush(pwm: &PWM0) {
     __dsb();
 
     while pwm.sta().read().empt1().bit_is_clear() {}
@@ -519,26 +509,19 @@ fn burst_queue_flush(
     __dsb();
 }
 
-fn pwm_queue(
-    pwm: &PWM0,
-    x: u32
-) {
+fn pwm_queue(pwm: &PWM0, x: u32) {
     __dsb();
 
     // sendln_blocking!("PWM_STA={:?} PWM_CTL={:?}", pwm.sta().read(), pwm.ctl().read());
 
     while pwm.sta().read().full1().bit_is_set() {}
 
-    pwm.fif1().write(|w| {
-        unsafe { w.bits(x) }
-    });
+    pwm.fif1().write(|w| unsafe { w.bits(x) });
 
     __dsb();
 }
 
-fn poll_input_nonblocking(
-    gpio: &GPIO
-) -> bool {
+fn poll_input_nonblocking(gpio: &GPIO) -> bool {
     __dsb();
 
     let bit = gpio.gplev0().read().lev21().bit_is_set();

@@ -1,6 +1,6 @@
 pub fn encode_len(len: usize) -> [u8; 4] {
     if len >= (1 << 24) {
-        [0xc0,0xc0,0xc0,0xc0]
+        [0xc0, 0xc0, 0xc0, 0xc0]
     } else {
         let len = (len & 0x00ffffff) as u32;
         let b0 = (len & 0x3f) | 0xc0;
@@ -12,7 +12,7 @@ pub fn encode_len(len: usize) -> [u8; 4] {
 }
 
 pub fn decode_len(bytes: &[u8]) -> u32 {
-    if bytes.len() != 4 || bytes.iter().any(|x| (x&0xc0) != 0xc0) {
+    if bytes.len() != 4 || bytes.iter().any(|x| (x & 0xc0) != 0xc0) {
         0
     } else {
         let mut b = 0;

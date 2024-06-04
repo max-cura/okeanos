@@ -1,5 +1,5 @@
-use core::hint::unreachable_unchecked;
 use core::arch::asm;
+use core::hint::unreachable_unchecked;
 
 proc_bitfield::bitfield! {
     #[derive(Copy, Clone, Eq, PartialEq)]
@@ -27,7 +27,9 @@ proc_bitfield::bitfield! {
 #[derive(Debug, Copy, Clone)]
 pub struct ExecutionStateError(u8);
 impl ExecutionStateError {
-    pub fn value(&self) -> u8 { self.0 }
+    pub fn value(&self) -> u8 {
+        self.0
+    }
 }
 
 /// arm1176 execution state
@@ -43,7 +45,9 @@ pub enum ExecutionState {
     System = 0b11111,
 }
 impl Into<u8> for ExecutionState {
-    fn into(self) -> u8 { self as u8 }
+    fn into(self) -> u8 {
+        self as u8
+    }
 }
 impl TryFrom<u8> for ExecutionState {
     type Error = ExecutionStateError;
@@ -57,7 +61,7 @@ impl TryFrom<u8> for ExecutionState {
             0b10111 => Ok(Self::Abort),
             0b11011 => Ok(Self::Undefined),
             0b11111 => Ok(Self::System),
-            _ => Err(ExecutionStateError(value))
+            _ => Err(ExecutionStateError(value)),
         }
     }
 }
@@ -78,7 +82,7 @@ impl proc_bitfield::UnsafeFrom<u8> for ExecutionState {
 
 #[inline]
 pub fn __read_cpsr() -> CPSR {
-    let mut out : u32;
+    let mut out: u32;
     unsafe {
         asm!(
         "mrs {tmp}, cpsr",
@@ -90,7 +94,7 @@ pub fn __read_cpsr() -> CPSR {
 
 #[inline]
 pub fn __write_cpsr(cpsr: CPSR) {
-    let inp : u32 = cpsr.into();
+    let inp: u32 = cpsr.into();
     unsafe {
         asm!(
         "msr cpsr, {tmp}",

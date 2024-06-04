@@ -1,12 +1,12 @@
-use core::ptr;
 use crate::reactor::StationaryBufferLayout;
+use core::ptr;
 
 extern "C" {
     static mut __symbol_code_start__: u8;
     pub(crate) static __symbol_exec_end__: u8;
 
-    static mut __symbol_bss_start__ : u8;
-    static __symbol_bss_end__ : u8;
+    static mut __symbol_bss_start__: u8;
+    static __symbol_bss_end__: u8;
 
     pub(crate) static __relocation_stub__: u8;
     pub(crate) static __relocation_stub_end__: u8;
@@ -22,11 +22,8 @@ pub struct Span {
 }
 
 impl Span {
-    pub fn new(
-        begin: *mut u8,
-        end: *const u8
-    ) -> Self {
-        Self { begin, end, }
+    pub fn new(begin: *mut u8, end: *const u8) -> Self {
+        Self { begin, end }
     }
     pub unsafe fn as_bytes(&self) -> &[u8] {
         unsafe { core::slice::from_raw_parts(self.begin, self.len()) }
@@ -55,9 +52,7 @@ pub fn zero_stub_bss() {
         let end = core::ptr::addr_of!(__symbol_bss_end__);
 
         let mut bss = Span::new(start, end);
-        bss.as_bytes_mut()
-            .iter_mut()
-            .for_each(|b| *b = 0x00);
+        bss.as_bytes_mut().iter_mut().for_each(|b| *b = 0x00);
     }
 }
 
@@ -70,7 +65,7 @@ pub struct Relocation {
     relocate: bool,
 }
 
-const PAGE_SIZE : usize = 0x4000;
+const PAGE_SIZE: usize = 0x4000;
 
 impl Relocation {
     pub fn calculate(
@@ -109,26 +104,23 @@ impl Relocation {
         }
     }
 
-    pub unsafe fn write_bytes(
-        &self,
-        address: *mut u8,
-        bytes: &[u8]
-    ) {
+    pub unsafe fn write_bytes(&self, address: *mut u8, bytes: &[u8]) {
         let (ptr, len) = (bytes.as_ptr(), bytes.len());
         let write_ptr = if self.relocate
             && address >= self.base_address_ptr
-            && address < unsafe { self.base_address_ptr.byte_offset(self.relocate_first_n_bytes as isize) }
-        {
+            && address
+                < unsafe {
+                    self.base_address_ptr
+                        .byte_offset(self.relocate_first_n_bytes as isize)
+                } {
             unsafe {
-                self.side_buffer_ptr.byte_offset(
-                    address.byte_offset_from(self.base_address_ptr))
+                self.side_buffer_ptr
+                    .byte_offset(address.byte_offset_from(self.base_address_ptr))
             }
         } else {
             address
         };
-        unsafe {
-            ptr::copy(ptr, write_ptr, len)
-        };
+        unsafe { ptr::copy(ptr, write_ptr, len) };
     }
 
     pub unsafe fn verify_integrity(
@@ -136,7 +128,7 @@ impl Relocation {
         _rz: &super::reactor::Reactor,
         _fs: &mut super::reactor::txbuf::FrameSink,
         expected_crc: u32,
-        len: usize
+        len: usize,
     ) -> Integrity {
         let mut hasher = crc32fast::Hasher::new();
         // crate::print_rpc!(fs, "[device:v1]: verifying integrity (1)");
@@ -144,20 +136,22 @@ impl Relocation {
         if self.relocate {
             // crate::print_rpc!(fs, "[device:v1]: verifying integrity (2)");
             // fs._flush_to_fifo(&rz.peri.UART1);
-            let side_buf = unsafe { core::slice::from_raw_parts(
-                self.side_buffer_ptr,
-                self.relocate_first_n_bytes
-            ) };
+            let side_buf = unsafe {
+                core::slice::from_raw_parts(self.side_buffer_ptr, self.relocate_first_n_bytes)
+            };
             hasher.update(side_buf);
         }
         // let a = self.base_address_ptr.byte_offset(self.relocate_first_n_bytes as isize);
         // let b = len - self.relocate_first_n_bytes;
         // crate::print_rpc!(fs, "[device:v1]: verifying integrity (3) / {len}:{} / {a:#?}:{b}", self.relocate_first_n_bytes);
         // fs._flush_to_fifo(&rz.peri.UART1);
-        let inplace_buf = unsafe { core::slice::from_raw_parts(
-            self.base_address_ptr.byte_offset(self.relocate_first_n_bytes as isize),
-            len - self.relocate_first_n_bytes
-        ) };
+        let inplace_buf = unsafe {
+            core::slice::from_raw_parts(
+                self.base_address_ptr
+                    .byte_offset(self.relocate_first_n_bytes as isize),
+                len - self.relocate_first_n_bytes,
+            )
+        };
         hasher.update(inplace_buf);
         // crate::print_rpc!(fs, "[device:v1]: verifying integrity (4)");
         // fs._flush_to_fifo(&rz.peri.UART1);

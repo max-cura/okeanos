@@ -9,19 +9,19 @@
 #![feature(never_type)]
 #![no_std]
 
-use core::fmt::Write;
-use bcm2835_lpa::Peripherals;
 use crate::arm1176::__dsb;
+use bcm2835_lpa::Peripherals;
+use core::fmt::Write;
 
 pub mod arm1176;
-pub mod timing;
-pub mod muart;
-pub mod ir;
-pub mod reactor;
-pub mod timeouts;
-pub mod symbols;
 pub mod heap;
+pub mod ir;
+pub mod muart;
+pub mod reactor;
 pub mod relocation;
+pub mod symbols;
+pub mod timeouts;
+pub mod timing;
 
 #[macro_export]
 macro_rules! sendln_blocking {
@@ -55,9 +55,7 @@ impl Write for Uart {
 
         for &b in s.as_bytes() {
             while uart.stat().read().tx_ready().bit_is_clear() {}
-            unsafe { uart.io().write_with_zero(|w|
-                unsafe { w.data().bits(b) }
-            ) };
+            unsafe { uart.io().write_with_zero(|w| unsafe { w.data().bits(b) }) };
         }
 
         __dsb();

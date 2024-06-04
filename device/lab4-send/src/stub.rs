@@ -16,11 +16,8 @@ pub struct Span {
 }
 
 impl Span {
-    pub fn new(
-        begin: *mut u8,
-        end: *const u8
-    ) -> Self {
-        Self { begin, end, }
+    pub fn new(begin: *mut u8, end: *const u8) -> Self {
+        Self { begin, end }
     }
     pub unsafe fn as_bytes(&self) -> &[u8] {
         unsafe { core::slice::from_raw_parts(self.begin, self.len()) }
@@ -49,9 +46,7 @@ pub fn zero_stub_bss() {
         let end = core::ptr::addr_of!(__symbol_bss_end__);
 
         let mut bss = Span::new(start, end);
-        bss.as_bytes_mut()
-            .iter_mut()
-            .for_each(|b| *b = 0x00);
+        bss.as_bytes_mut().iter_mut().for_each(|b| *b = 0x00);
     }
 }
 
@@ -64,7 +59,7 @@ pub struct Relocation {
     relocate: bool,
 }
 
-const PAGE_SIZE : usize = 0x4000;
+const PAGE_SIZE: usize = 0x4000;
 
 // impl Relocation {
 //     pub fn calculate(

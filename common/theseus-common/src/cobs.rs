@@ -1,4 +1,4 @@
-const SENTINEL : u8 = 0x00;
+const SENTINEL: u8 = 0x00;
 
 #[derive(Debug, Clone)]
 pub struct LineDecoder {
@@ -31,7 +31,7 @@ impl LineDecoder {
             // assert(byte_raw != 0)
             self.last_jump = byte_raw as usize;
             self.bytes_since_last_jump = 0;
-            return FeedState::Pass
+            return FeedState::Pass;
         }
         self.bytes_since_last_jump += 1;
         if self.bytes_since_last_jump < self.last_jump {
@@ -92,7 +92,10 @@ pub struct PacketEncoder<'a> {
 
 impl<'a> PacketEncoder<'a> {
     pub fn with_buffer(underlying_buffer: &'a mut [u8], xor: u8) -> Option<Self> {
-        Some(Self { inner: PacketEncoderInner::with_buffer(underlying_buffer)?, xor })
+        Some(Self {
+            inner: PacketEncoderInner::with_buffer(underlying_buffer)?,
+            xor,
+        })
     }
     pub fn add_byte(&mut self, x: u8) -> EncodeState {
         match self.inner.add_byte(x) {
@@ -100,7 +103,7 @@ impl<'a> PacketEncoder<'a> {
                 b.iter_mut().for_each(|x| *x ^= self.xor);
                 EncodeState::Buf(&b[..])
             }
-            EncodeStateInner::Pass => EncodeState::Pass
+            EncodeStateInner::Pass => EncodeState::Pass,
         }
     }
     pub fn finish(self) -> &'a [u8] {
@@ -138,12 +141,12 @@ impl<'a> PacketEncoderInner<'a> {
             if x == SENTINEL {
                 self.buf[0] = 0xfe;
                 self.curs = 1;
-                return EncodeStateInner::Buf(&mut self.buf[0..254])
+                return EncodeStateInner::Buf(&mut self.buf[0..254]);
             } else {
                 self.buf[0] = 0xff;
                 self.buf[0xfe] = x;
                 self.curs = 1;
-                return EncodeStateInner::Buf(&mut self.buf[0..255])
+                return EncodeStateInner::Buf(&mut self.buf[0..255]);
             }
             // OLD AND NOT WORKING:
             // self.buf[0] = 0xff;

@@ -1,23 +1,28 @@
-use core::any::Any;
-use core::time::Duration;
-use theseus_common::theseus::{MessageTypeType, v1};
-use crate::reactor::{Io, IoEncode, IoEncodeMarker, IoTimeoutsRelative, Logger, Protocol, ProtocolFlow, Reactor};
+use crate::reactor::{
+    Io, IoEncode, IoEncodeMarker, IoTimeoutsRelative, Logger, Protocol, ProtocolFlow, Reactor,
+};
 use crate::relocation::{Integrity, Relocation};
 use crate::timing::Instant;
+use core::any::Any;
+use core::time::Duration;
+use theseus_common::theseus::{v1, MessageTypeType};
 
-const CHUNK_SIZE : usize = 0x100;
+const CHUNK_SIZE: usize = 0x100;
 
 pub(crate) mod timeouts {
     use crate::timeouts::RateRelativeTimeout;
 
-    pub const ERROR_RECOVERY : RateRelativeTimeout = RateRelativeTimeout::from_bytes(12);
-    pub const BYTE_READ : RateRelativeTimeout = RateRelativeTimeout::from_bytes(2);
-    pub const SESSION_EXPIRES : RateRelativeTimeout = RateRelativeTimeout::from_bytes(12288 /* 0x3000 */);
-    pub const SESSION_EXPIRES_LONG : RateRelativeTimeout = RateRelativeTimeout::from_bytes(super::CHUNK_SIZE * 16 * 2);
+    pub const ERROR_RECOVERY: RateRelativeTimeout = RateRelativeTimeout::from_bytes(12);
+    pub const BYTE_READ: RateRelativeTimeout = RateRelativeTimeout::from_bytes(2);
+    pub const SESSION_EXPIRES: RateRelativeTimeout =
+        RateRelativeTimeout::from_bytes(12288 /* 0x3000 */);
+    pub const SESSION_EXPIRES_LONG: RateRelativeTimeout =
+        RateRelativeTimeout::from_bytes(super::CHUNK_SIZE * 16 * 2);
 
-    pub const TRY_RESEND : RateRelativeTimeout = RateRelativeTimeout::from_bytes(0x50);
+    pub const TRY_RESEND: RateRelativeTimeout = RateRelativeTimeout::from_bytes(0x50);
     // pub const TRY_RESEND: RateRelativeTimeout = RateRelativeTimeout::from_bytes(0x300);
-    pub const TRY_RESEND_CHUNK : RateRelativeTimeout = RateRelativeTimeout::from_bytes(super::CHUNK_SIZE * 16);
+    pub const TRY_RESEND_CHUNK: RateRelativeTimeout =
+        RateRelativeTimeout::from_bytes(super::CHUNK_SIZE * 16);
     pub const BUFFER_RETRY: RateRelativeTimeout = RateRelativeTimeout::from_bytes(0x80);
 }
 
@@ -46,7 +51,7 @@ enum State {
     RequestProgramInfo,
     RequestProgram { info: InfoState },
     RequestChunk { load: LoadState },
-    Boot { relocation: Relocation }
+    Boot { relocation: Relocation },
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -111,7 +116,7 @@ impl BootProtocol {
             once: true,
             retry_buffer: false,
             timeouts: V1Timeouts::with_ir(),
-            final_relocation
+            final_relocation,
         }
     }
 
@@ -130,16 +135,20 @@ impl Protocol for BootProtocol {
         &mut self,
         reactor: &mut Reactor,
         logger: &mut dyn Logger,
-        msg: &[u8]
+        msg: &[u8],
     ) -> ProtocolFlow {
         // pull out mtt and bytes
-        let (typ, data) = match postcard::take_from_bytes::<theseus_common::theseus::MessageTypeType>(msg) {
-            Ok(x) => x,
-            Err(e) => {
-                let _ = logger.writeln_fmt(reactor, format_args!("[device:v1]: failed to deserialize message type: {e}"));
-                return ProtocolFlow::Abcon
-            }
-        };
+        let (typ, data) =
+            match postcard::take_from_bytes::<theseus_common::theseus::MessageTypeType>(msg) {
+                Ok(x) => x,
+                Err(e) => {
+                    let _ = logger.writeln_fmt(
+                        reactor,
+                        format_args!("[device:v1]: failed to deserialize message type: {e}"),
+                    );
+                    return ProtocolFlow::Abcon;
+                }
+            };
         self.handle_packet(reactor, logger, typ, data)
     }
 
@@ -168,7 +177,10 @@ impl BootProtocol {
     ) -> ProtocolFlow {
         match mtt {
             v1::MSG_PROGRAM_INFO => {
-                let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: V1Timeouts={:?}", self.timeouts));
+                let _ = logger.writeln_fmt(
+                    rz,
+                    format_args!("[device:v1]: V1Timeouts={:?}", self.timeouts),
+                );
                 let msg: v1::host::ProgramInfo = match postcard::from_bytes(&msg_data) {
                     Ok(x) => x,
                     Err(e) => {
@@ -200,11 +212,14 @@ impl BootProtocol {
                 if !self.recv_chunk(rz, logger, &msg) {
                     // special bit: if this returns false, (integrity check) CRC failed or other catastrophic error
                     // TODO: full reboot to recover state?
-                    return ProtocolFlow::Abend
+                    return ProtocolFlow::Abend;
                 }
             }
             t => {
-                let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: Unrecognized message type: {t}, ignoring."));
+                let _ = logger.writeln_fmt(
+                    rz,
+                    format_args!("[device:v1]: Unrecognized message type: {t}, ignoring."),
+                );
             }
         }
 
@@ -241,29 +256,23 @@ impl BootProtocol {
         // }
 
         if should_send {
-            match { match &self.state {
-                State::RequestProgramInfo => {
-                    self.send_request_program_info(rz, io, logger)
-                }
-                State::RequestProgram { info } => {
-                    self.send_request_program(rz, io, logger, info)
-                }
-                State::RequestChunk { load } => {
-                    // logger.write_fmt(rz, format_args!("[device:v1]: requesting chunk after {heartbeat_elapsed:?}");
-                    self.send_request_chunk(rz, io, logger, load)
-                }
-                State::Boot { relocation } => {
-                    unsafe {
-                        (self.final_relocation)(rz, io, relocation.clone())
+            match {
+                match &self.state {
+                    State::RequestProgramInfo => self.send_request_program_info(rz, io, logger),
+                    State::RequestProgram { info } => {
+                        self.send_request_program(rz, io, logger, info)
                     }
+                    State::RequestChunk { load } => {
+                        // logger.write_fmt(rz, format_args!("[device:v1]: requesting chunk after {heartbeat_elapsed:?}");
+                        self.send_request_chunk(rz, io, logger, load)
+                    }
+                    State::Boot { relocation } => unsafe {
+                        (self.final_relocation)(rz, io, relocation.clone())
+                    },
                 }
-            } } {
-                Ok(SendResult::Ok) => {
-                    self.retry_buffer = false
-                }
-                Ok(SendResult::Failed) => {
-                    self.retry_buffer = true
-                }
+            } {
+                Ok(SendResult::Ok) => self.retry_buffer = false,
+                Ok(SendResult::Failed) => self.retry_buffer = true,
                 Err(_) => {
                     return ProtocolFlow::Abend;
                 }
@@ -281,7 +290,11 @@ impl BootProtocol {
         io: &mut dyn Io,
         logger: &mut dyn Logger,
     ) -> Result<SendResult, ()> {
-        Ok(SendResult::succeeded(io.io_queue_message(rz, logger, &v1::device::RequestProgramInfo)))
+        Ok(SendResult::succeeded(io.io_queue_message(
+            rz,
+            logger,
+            &v1::device::RequestProgramInfo,
+        )))
     }
 
     fn send_request_program(
@@ -291,11 +304,15 @@ impl BootProtocol {
         logger: &mut dyn Logger,
         info: &InfoState,
     ) -> Result<SendResult, ()> {
-        Ok(SendResult::succeeded(io.io_queue_message(rz, logger, &v1::device::RequestProgram {
-            chunk_size: CHUNK_SIZE as u32,
-            verify_compressed_crc: info.compressed_crc,
-            verify_decompressed_crc: info.decompressed_crc,
-        })))
+        Ok(SendResult::succeeded(io.io_queue_message(
+            rz,
+            logger,
+            &v1::device::RequestProgram {
+                chunk_size: CHUNK_SIZE as u32,
+                verify_compressed_crc: info.compressed_crc,
+                verify_decompressed_crc: info.decompressed_crc,
+            },
+        )))
     }
 
     fn send_request_chunk(
@@ -305,9 +322,13 @@ impl BootProtocol {
         logger: &mut dyn Logger,
         load: &LoadState,
     ) -> Result<SendResult, ()> {
-        Ok(SendResult::succeeded(io.io_queue_message(rz, logger, &v1::device::RequestChunk {
-            chunk_no: load.chunk_no as u32,
-        })))
+        Ok(SendResult::succeeded(io.io_queue_message(
+            rz,
+            logger,
+            &v1::device::RequestChunk {
+                chunk_no: load.chunk_no as u32,
+            },
+        )))
     }
 
     fn recv_program_info(
@@ -317,8 +338,14 @@ impl BootProtocol {
         msg: &v1::host::ProgramInfo,
     ) {
         if !matches!(self.state, State::RequestProgramInfo) {
-            let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: Received unexpected ProgramInfo in state: {:?}, ignoring.", self.state));
-            return
+            let _ = logger.writeln_fmt(
+                rz,
+                format_args!(
+                    "[device:v1]: Received unexpected ProgramInfo in state: {:?}, ignoring.",
+                    self.state
+                ),
+            );
+            return;
         }
         self.state = State::RequestProgram {
             info: InfoState {
@@ -327,7 +354,7 @@ impl BootProtocol {
                 decompressed_len: msg.compressed_len as usize,
                 compressed_crc: msg.compressed_crc,
                 decompressed_crc: msg.decompressed_crc,
-            }
+            },
         };
         self.once = true;
     }
@@ -338,13 +365,21 @@ impl BootProtocol {
         logger: &mut dyn Logger,
         _msg: &v1::host::ProgramReady,
     ) {
-        if !matches!(self.state, State::RequestProgram {..}) {
-            let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: Received unexpected ProgramReady in state: {:?}, ignoring.", self.state));
-            return
+        if !matches!(self.state, State::RequestProgram { .. }) {
+            let _ = logger.writeln_fmt(
+                rz,
+                format_args!(
+                    "[device:v1]: Received unexpected ProgramReady in state: {:?}, ignoring.",
+                    self.state
+                ),
+            );
+            return;
         }
-        let State::RequestProgram { info } = core::mem::replace(&mut self.state, State::RequestProgramInfo) else {
+        let State::RequestProgram { info } =
+            core::mem::replace(&mut self.state, State::RequestProgramInfo)
+        else {
             let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: NOT IN REQUEST_PROGRAM"));
-            return
+            return;
         };
         self.state = State::RequestChunk {
             load: LoadState {
@@ -355,7 +390,7 @@ impl BootProtocol {
                 relocation: Relocation::calculate(
                     info.load_at_addr,
                     info.decompressed_len,
-                    rz.heap.highest()
+                    rz.heap.highest(),
                 ),
             },
         };
@@ -381,28 +416,44 @@ impl BootProtocol {
         logger: &mut dyn Logger,
         msg: &v1::host::Chunk,
     ) -> bool {
-        if !matches!(self.state, State::RequestChunk {..}) {
-            let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: Received unexpected Chunk in state: {:?}, ignoring.", self.state));
-            return true
+        if !matches!(self.state, State::RequestChunk { .. }) {
+            let _ = logger.writeln_fmt(
+                rz,
+                format_args!(
+                    "[device:v1]: Received unexpected Chunk in state: {:?}, ignoring.",
+                    self.state
+                ),
+            );
+            return true;
         }
         let State::RequestChunk { load } = &self.state else {
             let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: NOT IN REQUEST_CHUNK (1)"));
-            return true
+            return true;
         };
         // logger.write_fmt(rz, format_args!("[device:v1]: Received chunk {} (looking for {})", msg.chunk_no, load.chunk_no);
         if msg.chunk_no == load.chunk_no as u32 {
-            let State::RequestChunk { load: LoadState { info, chunk_no, num_chunks, hasher, relocation }}
-                = core::mem::replace(&mut self.state, State::RequestProgramInfo) else {
-                let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: NOT IN REQUEST_CHUNK (1)"));
-                return true
+            let State::RequestChunk {
+                load:
+                    LoadState {
+                        info,
+                        chunk_no,
+                        num_chunks,
+                        hasher,
+                        relocation,
+                    },
+            } = core::mem::replace(&mut self.state, State::RequestProgramInfo)
+            else {
+                let _ =
+                    logger.writeln_fmt(rz, format_args!("[device:v1]: NOT IN REQUEST_CHUNK (1)"));
+                return true;
             };
             // hasher.update(msg.data);
 
             // write data
             let ptr = unsafe {
-                relocation.base_address_ptr.offset(
-                    (CHUNK_SIZE * chunk_no) as isize
-                )
+                relocation
+                    .base_address_ptr
+                    .offset((CHUNK_SIZE * chunk_no) as isize)
             };
 
             unsafe {
@@ -438,23 +489,27 @@ impl BootProtocol {
                 // logger.write_fmt(rz, format_args!("[device:v1]: we should at this point jump to the relocation\
                 //                        stub but this functionality has not been implemented yet.");
                 // Check CRCs
-                match unsafe { relocation.verify_integrity(info.decompressed_crc, info.decompressed_len) } {
+                match unsafe {
+                    relocation.verify_integrity(info.decompressed_crc, info.decompressed_len)
+                } {
                     Integrity::Ok => {
-                        let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: CRCs okay, running relocation stub"));
+                        let _ = logger.writeln_fmt(
+                            rz,
+                            format_args!("[device:v1]: CRCs okay, running relocation stub"),
+                        );
                         rz.uart_buffer._flush_to_uart1_fifo(&rz.peri.UART1);
                     }
-                    Integrity::CrcMismatch { expected, calculated } => {
+                    Integrity::CrcMismatch {
+                        expected,
+                        calculated,
+                    } => {
                         let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: CRC mismatch: expected {expected:#010x} calculated {calculated:#010x}"));
                         rz.uart_buffer._flush_to_uart1_fifo(&rz.peri.UART1);
-                        return false
+                        return false;
                     }
                 }
 
-                unsafe {
-                    self.state = State::Boot {
-                        relocation
-                    }
-                }
+                unsafe { self.state = State::Boot { relocation } }
             } else {
                 self.state = State::RequestChunk {
                     load: LoadState {
@@ -463,15 +518,20 @@ impl BootProtocol {
                         num_chunks,
                         hasher,
                         relocation,
-                    }
+                    },
                 }
             }
         } else {
-            let _ = logger.writeln_fmt(rz, format_args!("[device:v1]: Wrong chunk, expected {} got {}", load.chunk_no, msg.chunk_no));
+            let _ = logger.writeln_fmt(
+                rz,
+                format_args!(
+                    "[device:v1]: Wrong chunk, expected {} got {}",
+                    load.chunk_no, msg.chunk_no
+                ),
+            );
         }
         self.once = true;
 
         true
     }
 }
-

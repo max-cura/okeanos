@@ -22,21 +22,50 @@
 //      commit ( selected , pred_kind - 1, kind )
 //! Naive implementation of a Physical Memory Manager for the ARM1176JZF-S.
 
-use core::mem::MaybeUninit;
+use crate::{uart1_sendln_bl, KiB, MiB};
+use core::fmt::{Debug, Formatter};
+use core::mem::{size_of, MaybeUninit};
 use core::ptr::NonNull;
 use thiserror::Error;
-
-#[allow(non_upper_case_globals)]
-const KiB : usize = 1024;
-#[allow(non_upper_case_globals)]
-const MiB : usize = 1024 * KiB;
 
 struct RegionInfo {
     bitmap: u16,
     next: u16,
     prev: u16,
 }
-const CHAIN_END : u16 = 0xffff;
+const CHAIN_END: u16 = 0xffff;
+#[repr(C)]
+struct PMMInit {
+    floating_lists: MaybeUninit<[Option<usize>; 3]>,
+    regions: MaybeUninit<[RegionInfo; 0x2220]>,
+    supersection_mask: MaybeUninit<u32>,
+    floating_counts: MaybeUninit<[usize; 3]>,
+    allocated_counts: MaybeUninit<[usize; 4]>,
+}
+impl PMMInit {
+    unsafe fn from_self_ptr(mut this_ptr: NonNull<Self>) -> &'static mut PMM {
+        let this = this_ptr.as_mut();
+        this.floating_lists.write([None; 3]);
+        let regions_ptr = this.regions.as_mut_ptr();
+        let regions_ptr = regions_ptr.as_mut_ptr();
+        for i in 0..0x2220 {
+            regions_ptr.offset(i).write(RegionInfo {
+                bitmap: 0xffff,
+                next: CHAIN_END,
+                prev: CHAIN_END,
+            })
+        }
+        this.supersection_mask.write(0xffff_ffff);
+        this.floating_counts.write([0; 3]);
+        this.allocated_counts.write([0; 4]);
+        core::mem::transmute::<&mut PMMInit, &mut PMM>(this)
+    }
+}
+
+pub unsafe fn pmm_init_at(ptr: NonNull<PMM>) -> &'static mut PMM {
+    ptr.write_bytes(0, size_of::<PMM>());
+    PMMInit::from_self_ptr(ptr.cast::<PMMInit>())
+}
 
 #[repr(C)]
 pub struct PMM {
@@ -47,62 +76,64 @@ pub struct PMM {
     floating_counts: [usize; 3],
     allocated_counts: [usize; 4],
 }
-#[repr(C)]
-struct PMMInit {
-    floating_lists: MaybeUninit<[Option<usize>;3]>,
-    regions: MaybeUninit<[RegionInfo; 0x2220]>,
-    supersection_mask: MaybeUninit<u32>,
-    floating_counts: MaybeUninit<[usize; 3]>,
-    allocated_counts: MaybeUninit<[usize; 4]>,
-}
-impl PMMInit {
-    unsafe fn from_self_ptr(
-        mut this_ptr: NonNull<Self>,
-    ) -> &'static mut PMM {
-        let this = this_ptr.as_mut();
-        this.floating_lists.write([None; 3]);
-        let regions_ptr = this.regions.as_mut_ptr();
-        let regions_ptr = regions_ptr.as_mut_ptr();
-        for i in 0..0x2220 {
-            regions_ptr.offset(i).write(RegionInfo { bitmap: 0xffff, next: CHAIN_END, prev: CHAIN_END })
-        }
-        this.supersection_mask.write(0xffff_ffff);
-        this.floating_counts.write([0; 3]);
-        this.allocated_counts.write([0; 4]);
-        core::mem::transmute::<&mut PMMInit, &mut PMM>(this)
+impl Debug for PMM {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        writeln!(
+            f,
+            "LP floating list: {} starting @ {:?}",
+            self.floating_counts[0], self.floating_lists[0]
+        )?;
+        writeln!(
+            f,
+            "S floating list: {} starting @ {:?}",
+            self.floating_counts[1], self.floating_lists[1]
+        )?;
+        writeln!(
+            f,
+            "SS floating list: {} starting @ {:?}",
+            self.floating_counts[2], self.floating_lists[2]
+        )?;
+        writeln!(f, "SP floating list: {}", self.allocated_counts[0])?;
+        writeln!(f, "LP floating list: {}", self.allocated_counts[1])?;
+        writeln!(f, "S floating list: {}", self.allocated_counts[2])?;
+        writeln!(f, "SS floating list: {}", self.allocated_counts[3])?;
+        writeln!(f, "SS mask: {:08x}", self.supersection_mask)
     }
-}
-
-pub unsafe fn pmm_init_at(ptr: NonNull<PMM>) -> &'static mut PMM {
-    PMMInit::from_self_ptr(ptr.cast::<PMMInit>())
 }
 
 impl PMM {
     /// Requirements: used_regions consists of sorted, non-overlapping ranges
-    pub unsafe fn initialize_once(
-        &mut self,
-        used_regions: &[(*mut u8, *mut u8)]
-    ) {
+    pub unsafe fn initialize_once(&mut self, used_regions: &[(*mut u8, *mut u8)]) {
+        self.supersection_mask = 0xffff_ffff;
+        for rmut in &mut self.regions {
+            rmut.bitmap = 0xffff;
+            rmut.prev = CHAIN_END;
+            rmut.next = CHAIN_END;
+        }
+
         let mut i = 0;
         'outer: for j in 0usize..0x2_0000 {
-            let r = {
-                (sp_ptr(j), sp_ptr(j+1))
-            };
-            if r.1 <= used_regions[i].0 { // haven't reach used_regions[i] yet
-                continue
-            } else { // regions overlap
+            let r = { (sp_ptr(j), sp_ptr(j + 1)) };
+            if r.1 <= used_regions[i].0 {
+                // haven't reach used_regions[i] yet
+                continue;
+            } else {
+                // regions overlap
+                self.allocated_counts[0] += 1;
                 self.regions[lp_idx(j / 16)].bitmap &= !(1 << (j % 16));
-                while used_regions[i].1 <= r.1 { // while used_regions[i] ends on the current page
+                while used_regions[i].1 <= r.1 {
+                    // while used_regions[i] ends on the current page
                     i += 1;
                     if i >= used_regions.len() {
-                        break 'outer
+                        break 'outer;
                     }
                 }
             }
         }
         for i in 0usize..0x200 {
-            for j in (i*16)..(i*16+16) {
+            for j in (i * 16)..(i * 16 + 16) {
                 if self.regions[lp_idx(j)].bitmap != 0xffff {
+                    self.allocated_counts[1] += 1;
                     self.regions[s_idx(i)].bitmap &= !(1 << (j % 16));
                     if self.regions[lp_idx(j)].bitmap != 0 {
                         self.float(lp_idx(j), RegionKind::LargePage);
@@ -111,8 +142,9 @@ impl PMM {
             }
         }
         for i in 0usize..0x20 {
-            for j in (i*16)..(i*16+16) {
+            for j in (i * 16)..(i * 16 + 16) {
                 if self.regions[s_idx(j)].bitmap != 0xffff {
+                    self.allocated_counts[2] += 1;
                     self.regions[ss_idx(i)].bitmap &= !(1 << (j % 16));
                     if self.regions[s_idx(j)].bitmap != 0 {
                         self.float(s_idx(j), RegionKind::Section);
@@ -122,7 +154,9 @@ impl PMM {
         }
         for i in 0usize..32 {
             if self.regions[ss_idx(i)].bitmap != 0xffff {
+                self.allocated_counts[3] += 1;
                 self.supersection_mask &= !(1 << i);
+                uart1_sendln_bl!("SS Mask: {:08x}", self.supersection_mask);
                 if self.regions[ss_idx(i)].bitmap != 0 {
                     self.float(ss_idx(i), RegionKind::Supersection);
                 }
@@ -134,23 +168,27 @@ impl PMM {
         (self.floating_counts, self.allocated_counts)
     }
 
-    pub fn deallocate_region(&mut self, region: *mut u8, region_kind: RegionKind) -> Result<(), PMMDeallocError> {
+    pub fn deallocate_region(
+        &mut self,
+        region: *mut u8,
+        region_kind: RegionKind,
+    ) -> Result<(), PMMDeallocError> {
         let region_no = match region_kind {
             RegionKind::SmallPage => {
                 assert!(region.is_aligned_to(0x1000));
-                region.addr() / 0x1000
+                region as usize / 0x1000
             }
             RegionKind::LargePage => {
                 assert!(region.is_aligned_to(0x1_0000));
-                region.addr() / 0x1_0000
+                region as usize / 0x1_0000
             }
             RegionKind::Section => {
                 assert!(region.is_aligned_to(0x10_0000));
-                region.addr() / 0x10_0000
+                region as usize / 0x10_0000
             }
             RegionKind::Supersection => {
                 assert!(region.is_aligned_to(0x100_0000));
-                region.addr() / 0x100_0000
+                region as usize / 0x100_0000
             }
         };
         self.mark_free_recursive(region_no, region_kind);
@@ -163,11 +201,7 @@ impl PMM {
         Ok(())
     }
 
-    fn mark_free_recursive(
-        &mut self,
-        region_no: usize,
-        region_kind: RegionKind,
-    ) {
+    fn mark_free_recursive(&mut self, region_no: usize, region_kind: RegionKind) {
         // find the parent, free the bit
         // if the parent goes partial from full, put it on the chain
         // if the parent goes empty, remove it from the chain, and mark_free_recursive on the parent
@@ -187,7 +221,7 @@ impl PMM {
             RegionKind::Supersection => {
                 // special handling:
                 self.supersection_mask |= 1 << region_no;
-                return
+                return;
             }
         };
         let bitmap_init = self.regions[parent_idx].bitmap;
@@ -209,7 +243,7 @@ impl PMM {
         &mut self,
         pred: usize,
         pred_kind: RegionKind,
-        alloc_kind: RegionKind
+        alloc_kind: RegionKind,
     ) -> Result<*mut u8, PMMAllocError> {
         // preconditions:
         //  floating_idx points to a floating RegionInfo
@@ -220,7 +254,9 @@ impl PMM {
         let mut bitmap = self.regions[pred].bitmap;
         let lz = bitmap.leading_zeros();
         bitmap &= !(0x8000 >> lz);
-        if bitmap == 0 { // no children that are empty
+        self.regions[pred].bitmap = bitmap;
+        if bitmap == 0 {
+            // no children that are empty
             // remove this region from the floating chain
             self.unfloat(pred, pred_kind);
         }
@@ -231,7 +267,7 @@ impl PMM {
             let sp_no = child_no + (lp_no * 16);
             if alloc_kind == RegionKind::SmallPage {
                 Ok(sp_ptr(sp_no))
-            } else{
+            } else {
                 unreachable!()
             }
         } else if pred_kind == RegionKind::Section {
@@ -262,7 +298,7 @@ impl PMM {
         loop {
             curr_region_kind = match curr_region_kind.next_smallest() {
                 None => break,
-                Some(x) => x
+                Some(x) => x,
             };
             if let Some(floating_idx) = self.floating_list(curr_region_kind).unwrap() {
                 let ix = self.commit(floating_idx, curr_region_kind, region_kind);
@@ -274,7 +310,7 @@ impl PMM {
                         RegionKind::Supersection => 3,
                     }] += 1;
                 }
-                return ix
+                return ix;
             }
         }
         // Okay, so there were no partial LPages, Sections, or Supersections. Thus, we must split a
@@ -282,8 +318,8 @@ impl PMM {
         // If supersection_mask has any bits nonzero, there is a free supersection.
         if self.supersection_mask != 0 {
             let lz = self.supersection_mask.leading_zeros();
-            self.supersection_mask &= !(0x8000 >> lz);
-            let ss_no = 32 - lz;
+            self.supersection_mask &= !(0x8000_0000 >> lz);
+            let ss_no = 31 - lz;
             if region_kind == RegionKind::Supersection {
                 // use it directly
                 self.allocated_counts[3] += 1;
@@ -301,10 +337,10 @@ impl PMM {
                         RegionKind::Supersection => 3,
                     }] += 1;
                 }
-                return ix
+                return ix;
             }
         } else {
-            return Err(PMMAllocError::OutOfMemory)
+            return Err(PMMAllocError::OutOfMemory);
         }
     }
     fn unfloat(&mut self, idx: usize, kind: RegionKind) {
@@ -325,7 +361,7 @@ impl PMM {
         } else {
             self.floating_lists[i] = match next {
                 CHAIN_END => None,
-                x => Some(x as usize)
+                x => Some(x as usize),
             };
         }
     }
@@ -338,7 +374,9 @@ impl PMM {
         };
         self.floating_counts[i] += 1;
         self.regions[idx].prev = CHAIN_END;
-        self.regions[idx].next = self.floating_lists[i].map(|x| x as u16).unwrap_or(CHAIN_END);
+        self.regions[idx].next = self.floating_lists[i]
+            .map(|x| x as u16)
+            .unwrap_or(CHAIN_END);
         self.floating_lists[i] = Some(idx);
     }
     fn floating_list(&self, region_kind: RegionKind) -> Option<Option<usize>> {
@@ -346,7 +384,7 @@ impl PMM {
             RegionKind::LargePage => Some(self.floating_lists[0]),
             RegionKind::Section => Some(self.floating_lists[1]),
             RegionKind::Supersection => Some(self.floating_lists[2]),
-            RegionKind::SmallPage => None
+            RegionKind::SmallPage => None,
         }
     }
     fn floating_list_mut(&mut self, region_kind: RegionKind) -> Option<&mut Option<usize>> {
@@ -354,7 +392,7 @@ impl PMM {
             RegionKind::LargePage => Some(&mut self.floating_lists[0]),
             RegionKind::Section => Some(&mut self.floating_lists[1]),
             RegionKind::Supersection => Some(&mut self.floating_lists[2]),
-            RegionKind::SmallPage => None
+            RegionKind::SmallPage => None,
         }
     }
 }
@@ -391,7 +429,14 @@ fn lp_idx(lp_no: usize) -> usize {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum RegionKind {
-    SmallPage, LargePage, Section, Supersection,
+    /// 4KB
+    SmallPage,
+    // 64KB
+    LargePage,
+    // 1M
+    Section,
+    // 16M
+    Supersection,
 }
 impl RegionKind {
     fn next_smallest(self) -> Option<Self> {
@@ -406,9 +451,10 @@ impl RegionKind {
 
 #[derive(Debug, Error)]
 pub enum PMMAllocError {
-    #[error("Allocating physical region failed: no aligned contiguous free region of sufficient size")]
-    OutOfMemory
+    #[error(
+        "Allocating physical region failed: no aligned contiguous free region of sufficient size"
+    )]
+    OutOfMemory,
 }
 #[derive(Debug, Error)]
-pub enum PMMDeallocError {
-}
+pub enum PMMDeallocError {}

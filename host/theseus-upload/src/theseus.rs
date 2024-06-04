@@ -1,44 +1,51 @@
+use crate::args::Args;
 use std::io::{ErrorKind, Read, Write};
 use std::process::exit;
 use std::time::{Duration, Instant};
-use crate::args::Args;
 
-use color_eyre::{eyre, Result};
 use color_eyre::eyre::WrapErr;
+use color_eyre::{eyre, Result};
 use encode::HostEncode;
 
-use theseus_common::cobs::FeedState;
-use theseus_common::theseus::handshake::{self, HandshakeMessageType};
-use theseus_common::theseus::handshake::device::AllowedConfigsHelper;
-use theseus_common::theseus::MessageTypeType;
 use crate::bin_name;
 use crate::hexify::hexify;
 use crate::io::RW32;
 use crate::tty::TTY;
+use theseus_common::cobs::FeedState;
+use theseus_common::theseus::handshake::device::AllowedConfigsHelper;
+use theseus_common::theseus::handshake::{self, HandshakeMessageType};
+use theseus_common::theseus::MessageTypeType;
 
-pub mod v1;
 pub mod encode;
+pub mod v1;
 
 impl HostEncode for handshake::host::Probe {}
 impl HostEncode for handshake::host::UseConfig {}
 
-static SUPPORTED_VERSIONS : &[u16] = &[1];
-static SUPPORTED_BAUDS : &[u32] = &[115200, 230400, 576000, 921600, 1_000_000, 1_500_000];
+static SUPPORTED_VERSIONS: &[u16] = &[1];
+static SUPPORTED_BAUDS: &[u32] = &[115200, 230400, 576000, 921600, 1_000_000, 1_500_000];
 
 // B1000000, B1152000, B1500000, B2000000, B2500000, B3000000, B3500000, B4000000, B460800,
 // B500000, B576000, B921600,
-
 
 pub fn determine_configuration(
     allowed_configs: &AllowedConfigsHelper,
     _args: &Args,
 ) -> Option<handshake::host::UseConfig> {
-    let mut allowed_versions : Vec<u16> = allowed_configs.supported_versions.clone();
-    let mut allowed_bauds : Vec<u32> = allowed_configs.supported_bauds.clone();
+    let mut allowed_versions: Vec<u16> = allowed_configs.supported_versions.clone();
+    let mut allowed_bauds: Vec<u32> = allowed_configs.supported_bauds.clone();
     allowed_versions.sort();
     allowed_bauds.sort();
-    let highest_supported_version = allowed_versions.iter().copied().rev().find(is_version_supported)?;
-    let highest_supported_baud = allowed_bauds.iter().copied().rev().find(is_baud_supported)?;
+    let highest_supported_version = allowed_versions
+        .iter()
+        .copied()
+        .rev()
+        .find(is_version_supported)?;
+    let highest_supported_baud = allowed_bauds
+        .iter()
+        .copied()
+        .rev()
+        .find(is_baud_supported)?;
 
     Some(handshake::host::UseConfig {
         version: highest_supported_version,
@@ -59,9 +66,13 @@ pub fn try_promote(args: &Args, tty: &mut TTY) -> Result<bool> {
     let Some(config) = try_handshake(args, tty) else {
         log::info!("[{}]: Handshake failed.", bin_name());
         std::thread::sleep(Duration::from_millis(700));
-        return Ok(false)
+        return Ok(false);
     };
-    log::info!("[host]: Settled on version {} at {}Bd", config.version, config.baud);
+    log::info!(
+        "[host]: Settled on version {} at {}Bd",
+        config.version,
+        config.baud
+    );
 
     match config.version {
         1 => {
@@ -76,7 +87,7 @@ pub fn try_promote(args: &Args, tty: &mut TTY) -> Result<bool> {
 pub fn try_handshake(args: &Args, tty: &mut TTY) -> Option<handshake::host::UseConfig> {
     if let Err(e) = send_message(handshake::host::Probe, tty) {
         log::error!("[host]: Failed to send probe: {e}");
-        return None
+        return None;
     }
 
     // log::trace!("[host]: Sent probe.");
@@ -85,45 +96,46 @@ pub fn try_handshake(args: &Args, tty: &mut TTY) -> Option<handshake::host::UseC
         Ok(Some(msg)) => msg,
         Ok(None) => {
             log::debug!("[host]: Received no Handshake/AllowedConfigs within timeout.");
-            return None
+            return None;
         }
         Err(e) => {
             log::error!("[host]: Failed to read from serial port: {e}");
-            return None
+            return None;
         }
     };
     let (typ, frame_data) = match postcard::take_from_bytes::<MessageTypeType>(&msg) {
         Ok(t) => t,
         Err(e) => {
             log::error!("[host]: Failed to deserialize message type: {e}");
-            return None
+            return None;
         }
     };
-    const HANDSHAKE_ALLOWED_CONFIGS : u32 = HandshakeMessageType::AllowedConfigs.to_u32();
+    const HANDSHAKE_ALLOWED_CONFIGS: u32 = HandshakeMessageType::AllowedConfigs.to_u32();
     if typ != HANDSHAKE_ALLOWED_CONFIGS {
         log::error!("[host]: Expected Handshake/AllowedConfigs, got type={typ}");
-        return None
+        return None;
     }
-    let (ac, rem) = match postcard::take_from_bytes::<handshake::device::AllowedConfigs>(frame_data) {
+    let (ac, rem) = match postcard::take_from_bytes::<handshake::device::AllowedConfigs>(frame_data)
+    {
         Ok(t) => (AllowedConfigsHelper::from(t.0), t.1),
         Err(e) => {
             log::error!("[host]: Failed to deserialize message: {e}");
-            return None
+            return None;
         }
     };
     if !rem.is_empty() {
         log::error!("[host]: Bytes remaining in buffer after deserializing AllowedConfigs");
-        return None
+        return None;
     }
     // log::trace!("[host]: AC={ac:?}");
     let Some(config) = determine_configuration(&ac, args) else {
         log::error!("[host]: No device-compatible version/baud configuration found");
-        return None
+        return None;
     };
 
     if let Err(e) = send_message(config, tty) {
         log::error!("[host]: Failed to send UseConfig: {e}");
-        return None
+        return None;
     }
 
     // send seqeuences of 5f 5f 5f 5f  5f 5f 5f 5f every ~16 B interval for 4096 B of time
@@ -154,7 +166,7 @@ pub fn try_handshake(args: &Args, tty: &mut TTY) -> Option<handshake::host::UseC
 
     if let Err(e) = tty.set_baud_rate(config.baud) {
         log::error!("[host]: Failed to set baud rate: {e}");
-        return None
+        return None;
     }
 
     // tty.clear(ClearBuffer::All).unwrap();
@@ -187,20 +199,20 @@ pub fn recv_bytes_blocking_timeout(tty: &mut TTY, timeout: Duration) -> Result<O
         loop {
             if start.elapsed() > timeout {
                 log::trace!("[host] receive timeout");
-                return Ok(None)
+                return Ok(None);
             }
             let byte = match tty.read8() {
                 Ok(b) => b,
                 Err(e) if e.kind() == ErrorKind::TimedOut => {
                     log::trace!("[host] read8 timeout");
-                    continue
+                    continue;
                     // return Ok(None)
                 }
                 Err(e) if e.kind() == ErrorKind::BrokenPipe => {
                     log::error!("[{}]: Device disconnected. Aborting.", bin_name());
                     exit(1);
                 }
-                e @ Err(_) => e?
+                e @ Err(_) => e?,
             };
             // log::trace!("[host] BYTE < {byte:#04x}");
             state = match (state, byte) {
@@ -217,7 +229,9 @@ pub fn recv_bytes_blocking_timeout(tty: &mut TTY, timeout: Duration) -> Result<O
                     let len = tty.read32_le().unwrap_or(0);
                     if len > 0 {
                         let mut v = vec![0; len as usize];
-                        let _ = tty.read_exact(&mut v).inspect_err(|e| log::error!("PRINT_STRING read_exact failed: {e}"));
+                        let _ = tty
+                            .read_exact(&mut v)
+                            .inspect_err(|e| log::error!("PRINT_STRING read_exact failed: {e}"));
                         // log::trace!("< {}", hexify(&v));
                         log::info!("< {}", String::from_utf8_lossy(&v));
                     }
@@ -230,10 +244,15 @@ pub fn recv_bytes_blocking_timeout(tty: &mut TTY, timeout: Duration) -> Result<O
     }
 
     let len = {
-        let mut bytes = [0;4];
+        let mut bytes = [0; 4];
         for byte_no in 0..4 {
-            bytes[byte_no] = tty.read8()
-                .with_context(|| if byte_no == 0 { "while waiting for FRAME.LEN" } else { "while reading FRAME.LEN" })?;
+            bytes[byte_no] = tty.read8().with_context(|| {
+                if byte_no == 0 {
+                    "while waiting for FRAME.LEN"
+                } else {
+                    "while reading FRAME.LEN"
+                }
+            })?;
         }
         let len = theseus_common::theseus::len::decode_len(&bytes);
         if len < 4 {
@@ -255,7 +274,7 @@ pub fn recv_bytes_blocking_timeout(tty: &mut TTY, timeout: Duration) -> Result<O
         for b in cobs_frame {
             match line_decoder.feed(b) {
                 FeedState::PacketFinished => {}
-                FeedState::Byte(b) => { cooked.push(b) }
+                FeedState::Byte(b) => cooked.push(b),
                 FeedState::Pass => {}
             }
         }
@@ -269,16 +288,12 @@ pub fn recv_bytes_blocking_timeout(tty: &mut TTY, timeout: Duration) -> Result<O
     // check CRC
     let message_crc = {
         let crc_bytes = &cobs_frame[(cobs_len - 4)..];
-        u32::from_le_bytes([
-            crc_bytes[0],
-            crc_bytes[1],
-            crc_bytes[2],
-            crc_bytes[3]])
+        u32::from_le_bytes([crc_bytes[0], crc_bytes[1], crc_bytes[2], crc_bytes[3]])
     };
-    let calc_crc = crc32fast::hash(&cobs_frame[..(cobs_len-4)]);
+    let calc_crc = crc32fast::hash(&cobs_frame[..(cobs_len - 4)]);
 
     if message_crc == calc_crc {
-        Ok(Some(cobs_frame[..(cobs_len-4)].to_vec()))
+        Ok(Some(cobs_frame[..(cobs_len - 4)].to_vec()))
     } else {
         eyre::bail!("CRC mismatch: message had checksum {message_crc}, host computed {calc_crc}, COBS frame: [{}]", hexify(&cobs_frame));
     }

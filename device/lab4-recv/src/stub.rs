@@ -2,8 +2,8 @@ extern "C" {
     static mut __symbol_exec_start__: u8;
     pub(crate) static __symbol_exec_end__: u8;
 
-    static mut __symbol_bss_start__ : u8;
-    static __symbol_bss_end__ : u8;
+    static mut __symbol_bss_start__: u8;
+    static __symbol_bss_end__: u8;
 
     pub(crate) static __symbol_relocation_stub__: u8;
     pub(crate) static __symbol_relocation_stub_end__: u8;
@@ -19,11 +19,8 @@ pub struct Span {
 }
 
 impl Span {
-    pub fn new(
-        begin: *mut u8,
-        end: *const u8
-    ) -> Self {
-        Self { begin, end, }
+    pub fn new(begin: *mut u8, end: *const u8) -> Self {
+        Self { begin, end }
     }
     pub unsafe fn as_bytes(&self) -> &[u8] {
         unsafe { core::slice::from_raw_parts(self.begin, self.len()) }
@@ -52,8 +49,6 @@ pub fn zero_stub_bss() {
         let end = core::ptr::addr_of!(__symbol_bss_end__);
 
         let mut bss = Span::new(start, end);
-        bss.as_bytes_mut()
-            .iter_mut()
-            .for_each(|b| *b = 0x00);
+        bss.as_bytes_mut().iter_mut().for_each(|b| *b = 0x00);
     }
 }

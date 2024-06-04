@@ -1,11 +1,12 @@
 use core::arch::asm;
 
 pub mod cpsr;
-pub mod lic;
 pub mod encoding;
-pub mod sync;
-pub mod pmm;
+pub mod lic;
 pub mod mmu;
+pub mod pmm;
+pub mod sync;
+pub mod thread;
 pub mod timing;
 
 /// Also called Drain Write Buffer/Data Write Barrier.
@@ -47,14 +48,10 @@ pub fn __dmb() {
 
 #[inline]
 pub fn __wfe() {
-    unsafe {
-        asm!("wfe")
-    }
+    unsafe { asm!("wfe") }
 }
 
 #[inline]
 pub fn __sev() {
-    unsafe {
-        asm!("sev")
-    }
+    unsafe { asm!("sev") }
 }

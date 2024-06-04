@@ -1,12 +1,11 @@
-use std::io::{self, ErrorKind, Read, Write};
-use std::process::exit;
-use color_eyre::{eyre, Section};
-use theseus_common::su_boot::Command;
 use crate::args::{Args, TraceLevel};
 use crate::bin_name;
 use crate::io::RW32;
 use crate::tty::{ClearBuffer, TTY};
-
+use color_eyre::{eyre, Section};
+use std::io::{self, ErrorKind, Read, Write};
+use std::process::exit;
+use theseus_common::su_boot::Command;
 
 struct Write32<'a> {
     inner: &'a mut TTY,
@@ -32,7 +31,7 @@ impl<'a> Write32<'a> {
 fn with_write32(
     tty: &mut TTY,
     tl: TraceLevel,
-    f: impl FnOnce(Write32) -> io::Result<()>
+    f: impl FnOnce(Write32) -> io::Result<()>,
 ) -> io::Result<()> {
     f(Write32::new(tty, tl))
 }
@@ -84,17 +83,26 @@ pub(crate) fn begin(args: &Args, tty: &mut TTY) -> eyre::Result<()> {
         }
         // BOOT_ERROR (bbbbcccc) or GET_CODE (55556666)
         match (status, switch, byte) {
-            (0, 0, 0xcc) => { switch = 1; status += 1 }
-            (1, 1, 0xcc) => { status += 1 }
-            (2, 1, 0xbb) => { status += 1 }
-            (3, 1, 0xbb) => { status += 1 }
-            (0, 0, 0x66) => { switch = 2; status += 1 }
-            (1, 2, 0x66) => { status += 1 }
-            (2, 2, 0x55) => { status += 1 }
-            (3, 2, 0x55) => { status += 1 }
-            (0, 0, 0xee) => { switch = 3; status += 1 }
-            (1, 3, 0xee) => { status += 1 }
-            (2, 3, 0xdd) => { status += 1 }
+            (0, 0, 0xcc) => {
+                switch = 1;
+                status += 1
+            }
+            (1, 1, 0xcc) => status += 1,
+            (2, 1, 0xbb) => status += 1,
+            (3, 1, 0xbb) => status += 1,
+            (0, 0, 0x66) => {
+                switch = 2;
+                status += 1
+            }
+            (1, 2, 0x66) => status += 1,
+            (2, 2, 0x55) => status += 1,
+            (3, 2, 0x55) => status += 1,
+            (0, 0, 0xee) => {
+                switch = 3;
+                status += 1
+            }
+            (1, 3, 0xee) => status += 1,
+            (2, 3, 0xdd) => status += 1,
             (3, 3, 0xdd) => {
                 status = 0;
                 switch = 0;
@@ -105,10 +113,15 @@ pub(crate) fn begin(args: &Args, tty: &mut TTY) -> eyre::Result<()> {
                     log::info!("< {}", String::from_utf8_lossy(&v));
                 }
             }
-            (0, 0, _) => {},
-            _ => { switch = 0; status = 0 }
+            (0, 0, _) => {}
+            _ => {
+                switch = 0;
+                status = 0
+            }
         }
-        if status == 4 { break }
+        if status == 4 {
+            break;
+        }
     }
 
     if switch == 1 {
@@ -122,7 +135,9 @@ pub(crate) fn begin(args: &Args, tty: &mut TTY) -> eyre::Result<()> {
         unreachable!("state machine has two end states, 1 and 2; got neither");
     }
 
-    let retransmitted_crc = tty.read32_le().with_note(|| "while reading retransmitted CRC")?;
+    let retransmitted_crc = tty
+        .read32_le()
+        .with_note(|| "while reading retransmitted CRC")?;
 
     if retransmitted_crc != crc32 {
         log::error!("Bad CRC: sent {crc32:#010x}, received {retransmitted_crc:#010x}! Aborting.");
@@ -158,17 +173,26 @@ pub(crate) fn begin(args: &Args, tty: &mut TTY) -> eyre::Result<()> {
         // log::trace!("< {byte}");
         // BOOT_ERROR (bbbbcccc) or BOOT_SUCCESS (9999aaaa)
         match (status, switch, byte) {
-            (0, 0, 0xcc) => { switch = 1; status += 1 }
-            (1, 1, 0xcc) => { status += 1 }
-            (2, 1, 0xbb) => { status += 1 }
-            (3, 1, 0xbb) => { status += 1 }
-            (0, 0, 0xaa) => { switch = 2; status += 1 }
-            (1, 2, 0xaa) => { status += 1 }
-            (2, 2, 0x99) => { status += 1 }
-            (3, 2, 0x99) => { status += 1 }
-            (0, 0, 0xee) => { switch = 3; status += 1 }
-            (1, 3, 0xee) => { status += 1 }
-            (2, 3, 0xdd) => { status += 1 }
+            (0, 0, 0xcc) => {
+                switch = 1;
+                status += 1
+            }
+            (1, 1, 0xcc) => status += 1,
+            (2, 1, 0xbb) => status += 1,
+            (3, 1, 0xbb) => status += 1,
+            (0, 0, 0xaa) => {
+                switch = 2;
+                status += 1
+            }
+            (1, 2, 0xaa) => status += 1,
+            (2, 2, 0x99) => status += 1,
+            (3, 2, 0x99) => status += 1,
+            (0, 0, 0xee) => {
+                switch = 3;
+                status += 1
+            }
+            (1, 3, 0xee) => status += 1,
+            (2, 3, 0xdd) => status += 1,
             (3, 3, 0xdd) => {
                 status = 0;
                 switch = 0;
@@ -179,10 +203,15 @@ pub(crate) fn begin(args: &Args, tty: &mut TTY) -> eyre::Result<()> {
                     log::info!("< {}", String::from_utf8_lossy(&v));
                 }
             }
-            (0, 0, _) => {},
-            _ => { switch = 0; status = 0 }
+            (0, 0, _) => {}
+            _ => {
+                switch = 0;
+                status = 0
+            }
         }
-        if status == 4 { break }
+        if status == 4 {
+            break;
+        }
     }
     if switch == 1 {
         // BOOT_ERROR

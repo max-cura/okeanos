@@ -11,7 +11,11 @@ pub struct BumpHeap {
 
 impl BumpHeap {
     pub fn new(start: *mut u8, end: *mut u8) -> Self {
-        Self { start, end, ptr: start }
+        Self {
+            start,
+            end,
+            ptr: start,
+        }
     }
 
     pub fn highest(&self) -> *mut u8 {
@@ -26,23 +30,18 @@ impl BumpHeap {
         let ptr_align_bytes = self.ptr.align_offset(align);
         if ptr_align_bytes == usize::MAX {
             panic!("ptr_align_bytes={ptr_align_bytes}");
-            return None
+            return None;
         }
-        let alloc_ptr = (self.ptr as usize)
-            .checked_add(ptr_align_bytes)?
-            as *mut u8;
+        let alloc_ptr = (self.ptr as usize).checked_add(ptr_align_bytes)? as *mut u8;
 
-        let new_ptr = (alloc_ptr as usize)
-            .checked_add(size)?
-            as *mut u8;
+        let new_ptr = (alloc_ptr as usize).checked_add(size)? as *mut u8;
 
         if new_ptr >= self.end {
             panic!("new_ptr={new_ptr:#?}, self.end={:#?}", self.end);
-            return None
+            return None;
         } else {
             self.ptr = new_ptr;
-            NonNull::new(alloc_ptr)
-                .map(|p| NonNull::slice_from_raw_parts(p, size))
+            NonNull::new(alloc_ptr).map(|p| NonNull::slice_from_raw_parts(p, size))
         }
     }
 }

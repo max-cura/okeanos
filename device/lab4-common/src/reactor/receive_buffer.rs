@@ -6,7 +6,10 @@ pub struct ReceiveBuffer {
 
 impl ReceiveBuffer {
     pub fn new(underlying_storage: &'static mut [u8]) -> Self {
-        Self { underlying_storage, cursor: 0 }
+        Self {
+            underlying_storage,
+            cursor: 0,
+        }
     }
     pub fn clear(&mut self) {
         self.cursor = 0;
@@ -15,7 +18,7 @@ impl ReceiveBuffer {
     pub fn push_byte(&mut self, b: u8) -> bool {
         if self.cursor >= self.underlying_storage.len() {
             // that's not great
-            return false
+            return false;
         }
         self.underlying_storage[self.cursor] = b;
         self.cursor += 1;

@@ -1,17 +1,17 @@
+use crate::args::Args;
+use crate::hexify::hexify;
+use crate::theseus::encode::HostEncode;
+use crate::tty::TTY;
+use color_eyre::Result;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{Read, Write};
 use std::process;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use crate::args::Args;
-use color_eyre::Result;
-use indicatif::{ProgressBar, ProgressStyle};
 use theseus_common::cobs::{FeedState, LineDecoder};
-use theseus_common::INITIAL_BAUD_RATE;
-use theseus_common::theseus::{MessageTypeType, MSG_PRINT_STRING, v1};
 use theseus_common::theseus::v1::{device, host};
-use crate::hexify::hexify;
-use crate::theseus::encode::HostEncode;
-use crate::tty::TTY;
+use theseus_common::theseus::{v1, MessageTypeType, MSG_PRINT_STRING};
+use theseus_common::INITIAL_BAUD_RATE;
 
 pub struct TTYDriver<'a> {
     tty: &'a mut TTY,
@@ -63,8 +63,17 @@ impl<'a> TTYDriver<'a> {
                 (b0, S::PSLen0) => S::PSLen1(b0),
                 (b1, S::PSLen1(b0)) => S::PSLen2(b0, b1),
                 (b2, S::PSLen2(b0, b1)) => S::PSLen3(b0, b1, b2),
-                (b3, S::PSLen3(b0, b1, b2)) => S::PSFrame { total_len: u32::from_le_bytes([b0, b1, b2, b3]) as usize, received: 0 },
-                (b, S::PSFrame { total_len, received }) => {
+                (b3, S::PSLen3(b0, b1, b2)) => S::PSFrame {
+                    total_len: u32::from_le_bytes([b0, b1, b2, b3]) as usize,
+                    received: 0,
+                },
+                (
+                    b,
+                    S::PSFrame {
+                        total_len,
+                        received,
+                    },
+                ) => {
                     self.partial_frame.push(b);
                     let received = received + 1;
                     if received == total_len {
@@ -72,7 +81,10 @@ impl<'a> TTYDriver<'a> {
                         self.partial_frame.clear();
                         S::Waiting
                     } else {
-                        S::PSFrame { total_len, received }
+                        S::PSFrame {
+                            total_len,
+                            received,
+                        }
                     }
 
                     //let len = self.tty.read32_le().unwrap_or(0);
@@ -103,11 +115,20 @@ impl<'a> TTYDriver<'a> {
                     } else {
                         self.decoder.reset();
                         self.partial_frame.clear();
-                        S::CobsFrame { total_enc: len as usize, received: 0 }
+                        S::CobsFrame {
+                            total_enc: len as usize,
+                            received: 0,
+                        }
                     }
                 }
 
-                (b, S::CobsFrame { total_enc, received }) => {
+                (
+                    b,
+                    S::CobsFrame {
+                        total_enc,
+                        received,
+                    },
+                ) => {
                     if received >= total_enc {
                         log::error!("[host:v1]: COBS frame longer than expected: expected {total_enc} bytes");
                         S::Waiting
@@ -119,15 +140,21 @@ impl<'a> TTYDriver<'a> {
                                     log::error!("[host:v1]: COBS frame shorter than expected: expected {total_enc} bytes got {}", received+1);
                                     break 'packet S::Waiting;
                                 }
-                                let crc_bytes: [u8; 4] = self.partial_frame[self.partial_frame.len() - 4..].try_into().unwrap();
+                                let crc_bytes: [u8; 4] = self.partial_frame
+                                    [self.partial_frame.len() - 4..]
+                                    .try_into()
+                                    .unwrap();
                                 let declared_crc = u32::from_le_bytes(crc_bytes);
-                                let data_frame_bytes = &self.partial_frame[..self.partial_frame.len() - 4];
+                                let data_frame_bytes =
+                                    &self.partial_frame[..self.partial_frame.len() - 4];
                                 let computed_crc = crc32fast::hash(data_frame_bytes);
                                 if declared_crc != computed_crc {
                                     log::error!("[host:v1]: CRC mismatch: expected {declared_crc} got {computed_crc}");
                                     break 'packet S::Waiting;
                                 }
-                                let (typ, rem) = match postcard::take_from_bytes::<MessageTypeType>(data_frame_bytes) {
+                                let (typ, rem) = match postcard::take_from_bytes::<MessageTypeType>(
+                                    data_frame_bytes,
+                                ) {
                                     Ok(x) => x,
                                     Err(e) => {
                                         log::error!("[host:v1]: Failed deserialization of message type: {e}");
@@ -136,9 +163,14 @@ impl<'a> TTYDriver<'a> {
                                 };
                                 {
                                     if typ == MSG_PRINT_STRING {
-                                        log::info!("< {}", std::str::from_utf8(rem).unwrap_or("<invalid UTF-8>"));
+                                        log::info!(
+                                            "< {}",
+                                            std::str::from_utf8(rem).unwrap_or("<invalid UTF-8>")
+                                        );
                                     } else if let Err(e) = self.in_queue.send((typ, rem.to_vec())) {
-                                        log::error!("[host:v1]: Failed to queue incoming message: {e}");
+                                        log::error!(
+                                            "[host:v1]: Failed to queue incoming message: {e}"
+                                        );
                                         break 'packet S::Waiting;
                                     }
                                     // let mut l = self.in_queue.lock().unwrap();
@@ -147,12 +179,18 @@ impl<'a> TTYDriver<'a> {
                                 }
                                 self.partial_frame.clear();
                                 break 'packet S::Waiting;
-                            }
+                            },
                             FeedState::Byte(b) => {
                                 self.partial_frame.push(b);
-                                S::CobsFrame { total_enc, received: received + 1 }
+                                S::CobsFrame {
+                                    total_enc,
+                                    received: received + 1,
+                                }
                             }
-                            FeedState::Pass => S::CobsFrame { total_enc, received: received + 1 },
+                            FeedState::Pass => S::CobsFrame {
+                                total_enc,
+                                received: received + 1,
+                            },
                         }
                     }
                 }
@@ -274,7 +312,7 @@ pub fn split(tty: &mut TTY) -> (TTYDriver, TTYStream) {
             in_queue: iq_rx,
             out_queue: oq_tx,
             close,
-        }
+        },
     )
 }
 
@@ -394,14 +432,24 @@ impl<'a> Uploader<'a> {
         let compressed_crc_ok = rp.verify_compressed_crc == self.info.compressed_crc;
         let decompressed_crc_ok = rp.verify_decompressed_crc == self.info.decompressed_crc;
         if !compressed_crc_ok {
-            log::error!("[host:v1]: Compressed CRC mismatch: expected {} received {}", self.info.compressed_crc, rp.verify_compressed_crc);
+            log::error!(
+                "[host:v1]: Compressed CRC mismatch: expected {} received {}",
+                self.info.compressed_crc,
+                rp.verify_compressed_crc
+            );
         }
         if !decompressed_crc_ok {
-            log::error!("[host:v1]: Decompressed CRC mismatch: expected {} received {}", self.info.decompressed_crc, rp.verify_decompressed_crc);
+            log::error!(
+                "[host:v1]: Decompressed CRC mismatch: expected {} received {}",
+                self.info.decompressed_crc,
+                rp.verify_decompressed_crc
+            );
         }
         if compressed_crc_ok && decompressed_crc_ok {
             self.info.chunk_size = rp.chunk_size as usize;
-            self.num_compressed_chunks = (self.info.compressed_len as usize + self.info.chunk_size - 1) / self.info.chunk_size;
+            self.num_compressed_chunks = (self.info.compressed_len as usize + self.info.chunk_size
+                - 1)
+                / self.info.chunk_size;
             self.progress_bar = ProgressBar::new(self.info.compressed_len as u64);
             self.progress_bar.set_style(ProgressStyle::with_template(
                 "[{elapsed_precise}] {bar:60.cyan/blue} [{bytes:}/{total_bytes}] {bytes_per_sec}"
@@ -417,9 +465,7 @@ impl<'a> Uploader<'a> {
         let chunk_begin = rc.chunk_no as usize * self.info.chunk_size;
         let chunk_end = (chunk_begin + self.info.chunk_size).min(self.compressed.len());
 
-        self.progress_bar.update(|s| {
-            s.set_pos(chunk_end as u64)
-        });
+        self.progress_bar.update(|s| s.set_pos(chunk_end as u64));
 
         let msg = &host::Chunk {
             chunk_no: rc.chunk_no,
@@ -435,13 +481,10 @@ fn v1_upload(args: &Args, tty: &mut TTYStream) -> Result<()> {
     Uploader::new(args, tty).drive()
 }
 
-pub fn run(
-    args: &Args,
-    tty: &mut TTY,
-) -> Result<()> {
+pub fn run(args: &Args, tty: &mut TTY) -> Result<()> {
     let (mut driver, mut stream) = split(tty);
     let r = std::thread::scope(|scope| {
-        let jh = scope.spawn(|| { driver.drive() });
+        let jh = scope.spawn(|| driver.drive());
 
         let r = match v1_upload(args, &mut stream) {
             Ok(_) => true,

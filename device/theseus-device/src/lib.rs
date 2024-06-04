@@ -50,24 +50,41 @@ fn panic(info: &::core::panic::PanicInfo) -> ! {
     // muart::uart1_init(&peri.GPIO, &peri.AUX, &peri.UART1, 270);
 
     if let Some(loc) = info.location() {
-        legacy_print_string_blocking!(&peri.UART1, "[device]: Panic occurred at file '{}' line {}:", loc.file(), loc.line());
+        legacy_print_string_blocking!(
+            &peri.UART1,
+            "[device]: Panic occurred at file '{}' line {}:",
+            loc.file(),
+            loc.line()
+        );
     } else {
-        legacy_print_string_blocking!(&peri.UART1, "[device]: Panic occurred at [unknown location]");
+        legacy_print_string_blocking!(
+            &peri.UART1,
+            "[device]: Panic occurred at [unknown location]"
+        );
     }
     if let Some(msg) = info.message() {
         use core::fmt::Write as _;
         let bub = unsafe {
             core::mem::transmute::<
                 *mut legacy::fmt::TinyBuf<0x4000>,
-                &mut legacy::fmt::TinyBuf<0x4000>
+                &mut legacy::fmt::TinyBuf<0x4000>,
             >(core::ptr::addr_of_mut!(legacy::fmt::BOOT_UMSG_BUF))
         };
         bub.clear();
         if core::fmt::write(bub, *msg).is_err() {
-            legacy_print_string_blocking!(&peri.UART1, "[device]: [failed to write message to format buffer]");
+            legacy_print_string_blocking!(
+                &peri.UART1,
+                "[device]: [failed to write message to format buffer]"
+            );
         }
-        if legacy::fmt::UartWrite::new(&peri.UART1).write_str(bub.as_str()).is_err() {
-            legacy_print_string_blocking!(&peri.UART1, "[device]: [failed to write message to uart]");
+        if legacy::fmt::UartWrite::new(&peri.UART1)
+            .write_str(bub.as_str())
+            .is_err()
+        {
+            legacy_print_string_blocking!(
+                &peri.UART1,
+                "[device]: [failed to write message to uart]"
+            );
         }
     } else {
         legacy_print_string_blocking!(&peri.UART1, "[device]: [no message]");

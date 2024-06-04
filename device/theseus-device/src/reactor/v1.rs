@@ -1,14 +1,11 @@
-use core::time::Duration;
-use theseus_common::theseus::{
-    MessageTypeType,
-    v1,
-};
-use crate::reactor::{Protocol, ProtocolResult, Reactor, Timeouts};
 use crate::reactor::txbuf::FrameSink;
-use crate::stub::{__relocation_stub__, __relocation_stub_end__, Integrity, Relocation};
+use crate::reactor::{Protocol, ProtocolResult, Reactor, Timeouts};
+use crate::stub::{Integrity, Relocation, __relocation_stub__, __relocation_stub_end__};
 use crate::timing;
+use core::time::Duration;
+use theseus_common::theseus::{v1, MessageTypeType};
 
-const CHUNK_SIZE : usize = 0x1000;
+const CHUNK_SIZE: usize = 0x1000;
 
 #[derive(Debug, Copy, Clone)]
 struct InfoState {
@@ -41,13 +38,11 @@ enum State {
 mod timeouts {
     use crate::timeouts::RateRelativeTimeout;
 
-    pub const TRY_RESEND: RateRelativeTimeout
-        = RateRelativeTimeout::from_bytes(0x300);
+    pub const TRY_RESEND: RateRelativeTimeout = RateRelativeTimeout::from_bytes(0x300);
     // 150% CHUNK_SIZE
-    pub const TRY_RESEND_CHUNK : RateRelativeTimeout
-        = RateRelativeTimeout::from_bytes(super::CHUNK_SIZE * 16);
-    pub const BUFFER_RETRY: RateRelativeTimeout
-        = RateRelativeTimeout::from_bytes(0x80);
+    pub const TRY_RESEND_CHUNK: RateRelativeTimeout =
+        RateRelativeTimeout::from_bytes(super::CHUNK_SIZE * 16);
+    pub const BUFFER_RETRY: RateRelativeTimeout = RateRelativeTimeout::from_bytes(0x80);
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -80,10 +75,7 @@ pub struct V1 {
 }
 
 impl V1 {
-    pub fn new(
-        rz: &Reactor,
-        baud: u32,
-    ) -> Self {
+    pub fn new(rz: &Reactor, baud: u32) -> Self {
         Self {
             heartbeat: timing::Instant::now(&rz.peri.SYSTMR),
             state: State::RequestProgramInfo,
@@ -153,7 +145,7 @@ impl Protocol for V1 {
                 if !self.recv_chunk(rz, fs, &msg) {
                     // special bit: if this returns false, CRC failed or other catastrophic error
                     // TODO: full reboot to recover state?
-                    return ProtocolResult::Abend
+                    return ProtocolResult::Abend;
                 }
             }
             t => {
@@ -189,24 +181,18 @@ impl Protocol for V1 {
             || (self.retry_buffer && heartbeat_elapsed > self.timeouts.buffer_retry);
 
         if should_send {
-            match { match &self.state {
-                State::RequestProgramInfo => {
-                    self.send_request_program_info(rz, fs)
+            match {
+                match &self.state {
+                    State::RequestProgramInfo => self.send_request_program_info(rz, fs),
+                    State::RequestProgram { info } => self.send_request_program(rz, fs, info),
+                    State::RequestChunk { load } => {
+                        // crate::print_rpc!(fs, "[device:v1]: requesting chunk after {heartbeat_elapsed:?}");
+                        self.send_request_chunk(rz, fs, load)
+                    }
                 }
-                State::RequestProgram { info } => {
-                    self.send_request_program(rz, fs, info)
-                }
-                State::RequestChunk { load } => {
-                    // crate::print_rpc!(fs, "[device:v1]: requesting chunk after {heartbeat_elapsed:?}");
-                    self.send_request_chunk(rz, fs, load)
-                }
-            } } {
-                Ok(SendResult::Ok) => {
-                    self.retry_buffer = false
-                }
-                Ok(SendResult::Failed) => {
-                    self.retry_buffer = true
-                }
+            } {
+                Ok(SendResult::Ok) => self.retry_buffer = false,
+                Ok(SendResult::Failed) => self.retry_buffer = true,
                 Err(_) => {
                     return ProtocolResult::Abend;
                 }
@@ -243,10 +229,10 @@ impl V1 {
             verify_compressed_crc: info.compressed_crc,
             verify_decompressed_crc: info.decompressed_crc,
         })
-            .map(SendResult::succeeded)
-            .map_err(|e| {
-                crate::print_rpc!(fs, "[device:v1]: Serialization error: {e}, aborting.");
-            })
+        .map(SendResult::succeeded)
+        .map_err(|e| {
+            crate::print_rpc!(fs, "[device:v1]: Serialization error: {e}, aborting.");
+        })
     }
 
     fn send_request_chunk(
@@ -258,10 +244,10 @@ impl V1 {
         fs.send(&v1::device::RequestChunk {
             chunk_no: load.chunk_no as u32,
         })
-            .map(SendResult::succeeded)
-            .map_err(|e| {
-                crate::print_rpc!(fs, "[device:v1]: Serialization error: {e}, aborting.");
-            })
+        .map(SendResult::succeeded)
+        .map_err(|e| {
+            crate::print_rpc!(fs, "[device:v1]: Serialization error: {e}, aborting.");
+        })
     }
 
     fn recv_program_info(
@@ -271,8 +257,12 @@ impl V1 {
         msg: &v1::host::ProgramInfo,
     ) {
         if !matches!(self.state, State::RequestProgramInfo) {
-            crate::print_rpc!(fs, "[device:v1]: Received unexpected ProgramInfo in state: {:?}, ignoring.", self.state);
-            return
+            crate::print_rpc!(
+                fs,
+                "[device:v1]: Received unexpected ProgramInfo in state: {:?}, ignoring.",
+                self.state
+            );
+            return;
         }
         self.state = State::RequestProgram {
             info: InfoState {
@@ -281,24 +271,25 @@ impl V1 {
                 decompressed_len: msg.compressed_len as usize,
                 compressed_crc: msg.compressed_crc,
                 decompressed_crc: msg.decompressed_crc,
-            }
+            },
         };
         self.once = true;
     }
 
-    fn recv_program(
-        &mut self,
-        rz: &Reactor,
-        fs: &mut FrameSink,
-        _msg: &v1::host::ProgramReady,
-    ) {
-        if !matches!(self.state, State::RequestProgram {..}) {
-            crate::print_rpc!(fs, "[device:v1]: Received unexpected ProgramReady in state: {:?}, ignoring.", self.state);
-            return
+    fn recv_program(&mut self, rz: &Reactor, fs: &mut FrameSink, _msg: &v1::host::ProgramReady) {
+        if !matches!(self.state, State::RequestProgram { .. }) {
+            crate::print_rpc!(
+                fs,
+                "[device:v1]: Received unexpected ProgramReady in state: {:?}, ignoring.",
+                self.state
+            );
+            return;
         }
-        let State::RequestProgram { info } = core::mem::replace(&mut self.state, State::RequestProgramInfo) else {
+        let State::RequestProgram { info } =
+            core::mem::replace(&mut self.state, State::RequestProgramInfo)
+        else {
             crate::print_rpc!(fs, "[device:v1]: NOT IN REQUEST_PROGRAM");
-            return
+            return;
         };
         self.state = State::RequestChunk {
             load: LoadState {
@@ -306,47 +297,57 @@ impl V1 {
                 chunk_no: 0,
                 num_chunks: (info.compressed_len + CHUNK_SIZE - 1) / CHUNK_SIZE,
                 hasher: crc32fast::Hasher::new(),
-                relocation: Relocation::calculate(info.load_at_addr, info.decompressed_len, &rz.layout),
+                relocation: Relocation::calculate(
+                    info.load_at_addr,
+                    info.decompressed_len,
+                    &rz.layout,
+                ),
             },
         };
         // crate::print_rpc!(fs, "[device:v1]: {:?}", self.state);
         self.once = true;
 
         // IMPORTANT
-        rz.override_session_timeout.set(Some(
-            timeouts::TRY_RESEND_CHUNK.at_baud_8n1(self.baud)
-                * 2
-        ))
+        rz.override_session_timeout
+            .set(Some(timeouts::TRY_RESEND_CHUNK.at_baud_8n1(self.baud) * 2))
     }
 
-    fn recv_chunk(
-        &mut self,
-        rz: &Reactor,
-        fs: &mut FrameSink,
-        msg: &v1::host::Chunk,
-    ) -> bool {
-        if !matches!(self.state, State::RequestChunk {..}) {
-            crate::print_rpc!(fs, "[device:v1]: Received unexpected Chunk in state: {:?}, ignoring.", self.state);
-            return true
+    fn recv_chunk(&mut self, rz: &Reactor, fs: &mut FrameSink, msg: &v1::host::Chunk) -> bool {
+        if !matches!(self.state, State::RequestChunk { .. }) {
+            crate::print_rpc!(
+                fs,
+                "[device:v1]: Received unexpected Chunk in state: {:?}, ignoring.",
+                self.state
+            );
+            return true;
         }
         let State::RequestChunk { load } = &self.state else {
             crate::print_rpc!(fs, "[device:v1]: NOT IN REQUEST_CHUNK (1)");
-            return true
+            return true;
         };
         // crate::print_rpc!(fs, "[device:v1]: Received chunk {} (looking for {})", msg.chunk_no, load.chunk_no);
         if msg.chunk_no == load.chunk_no as u32 {
-            let State::RequestChunk { load: LoadState { info, chunk_no, num_chunks, hasher, relocation }}
-                = core::mem::replace(&mut self.state, State::RequestProgramInfo) else {
+            let State::RequestChunk {
+                load:
+                    LoadState {
+                        info,
+                        chunk_no,
+                        num_chunks,
+                        hasher,
+                        relocation,
+                    },
+            } = core::mem::replace(&mut self.state, State::RequestProgramInfo)
+            else {
                 crate::print_rpc!(fs, "[device:v1]: NOT IN REQUEST_CHUNK (1)");
-                return true
+                return true;
             };
             // hasher.update(msg.data);
 
             // write data
             let ptr = unsafe {
-                relocation.base_address_ptr.offset(
-                    (CHUNK_SIZE * chunk_no) as isize
-                )
+                relocation
+                    .base_address_ptr
+                    .offset((CHUNK_SIZE * chunk_no) as isize)
             };
 
             unsafe {
@@ -382,21 +383,29 @@ impl V1 {
                 // crate::print_rpc!(fs, "[device:v1]: we should at this point jump to the relocation\
                 //                        stub but this functionality has not been implemented yet.");
                 // Check CRCs
-                match unsafe { relocation.verify_integrity(rz, fs, info.decompressed_crc, info.decompressed_len) } {
+                match unsafe {
+                    relocation.verify_integrity(
+                        rz,
+                        fs,
+                        info.decompressed_crc,
+                        info.decompressed_len,
+                    )
+                } {
                     Integrity::Ok => {
                         crate::print_rpc!(fs, "[device:v1]: CRCs okay, running relocation stub");
                         fs._flush_to_fifo(&rz.peri.UART1);
                     }
-                    Integrity::CrcMismatch { expected, calculated } => {
+                    Integrity::CrcMismatch {
+                        expected,
+                        calculated,
+                    } => {
                         crate::print_rpc!(fs, "[device:v1]: CRC mismatch: expected {expected:#010x} calculated {calculated:#010x}");
                         fs._flush_to_fifo(&rz.peri.UART1);
-                        return false
+                        return false;
                     }
                 }
 
-                unsafe {
-                    final_relocation(rz, fs, relocation)
-                }
+                unsafe { final_relocation(rz, fs, relocation) }
             } else {
                 self.state = State::RequestChunk {
                     load: LoadState {
@@ -405,11 +414,16 @@ impl V1 {
                         num_chunks,
                         hasher,
                         relocation,
-                    }
+                    },
                 }
             }
         } else {
-            crate::print_rpc!(fs, "[device:v1]: Wrong chunk, expected {} got {}", load.chunk_no, msg.chunk_no);
+            crate::print_rpc!(
+                fs,
+                "[device:v1]: Wrong chunk, expected {} got {}",
+                load.chunk_no,
+                msg.chunk_no
+            );
         }
         self.once = true;
 
@@ -417,11 +431,7 @@ impl V1 {
     }
 }
 
-unsafe fn final_relocation(
-    rz: &Reactor,
-    fs: &mut FrameSink,
-    relocation: Relocation,
-) -> ! {
+unsafe fn final_relocation(rz: &Reactor, fs: &mut FrameSink, relocation: Relocation) -> ! {
     let blinken = super::Blinken::init(&rz.peri.GPIO);
     blinken.set(&rz.peri.GPIO, 0);
     // blinken._5(&rz.peri.GPIO, false);
@@ -437,7 +447,10 @@ unsafe fn final_relocation(
 
     let stub_len = stub_end.byte_offset_from(stub_begin) as usize;
 
-    crate::legacy_print_string_blocking!(&rz.peri.UART1, "[device:v1]: relocation_stub parameters:");
+    crate::legacy_print_string_blocking!(
+        &rz.peri.UART1,
+        "[device:v1]: relocation_stub parameters:"
+    );
     crate::legacy_print_string_blocking!(&rz.peri.UART1, "\tstub destination={stub_dst:#?}");
     crate::legacy_print_string_blocking!(&rz.peri.UART1, "\tstub code={stub_begin:#?}");
     crate::legacy_print_string_blocking!(&rz.peri.UART1, "\tstub length={stub_len:#?}");
@@ -446,13 +459,12 @@ unsafe fn final_relocation(
     crate::legacy_print_string_blocking!(&rz.peri.UART1, "\tcopy bytes={kernel_copy_len}");
     crate::legacy_print_string_blocking!(&rz.peri.UART1, "\tentry={kernel_entry:#?}");
 
-    core::ptr::copy(
-        stub_begin as *const u8,
-        stub_dst,
-        stub_len
-    );
+    core::ptr::copy(stub_begin as *const u8, stub_dst, stub_len);
 
-    crate::legacy_print_string_blocking!(&rz.peri.UART1, "[device:v1]: Loaded relocation-stub, jumping");
+    crate::legacy_print_string_blocking!(
+        &rz.peri.UART1,
+        "[device:v1]: Loaded relocation-stub, jumping"
+    );
 
     fs._flush_to_fifo(&rz.peri.UART1);
 

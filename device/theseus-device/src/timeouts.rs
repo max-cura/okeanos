@@ -30,8 +30,9 @@ impl RateRelativeTimeout {
     }
 }
 
-pub const ERROR_RECOVERY : RateRelativeTimeout = RateRelativeTimeout::from_bytes(12);
-pub const BYTE_READ : RateRelativeTimeout = RateRelativeTimeout::from_bytes(2);
-pub const SESSION_EXPIRES : RateRelativeTimeout = RateRelativeTimeout::from_bytes(12288 /* 0x3000 */);
+pub const ERROR_RECOVERY: RateRelativeTimeout = RateRelativeTimeout::from_bytes(12);
+pub const BYTE_READ: RateRelativeTimeout = RateRelativeTimeout::from_bytes(2);
+pub const SESSION_EXPIRES: RateRelativeTimeout =
+    RateRelativeTimeout::from_bytes(12288 /* 0x3000 */);
 
-pub const GET_PROG_INFO_INTERVAL : Duration = Duration::from_millis(300);
+pub const GET_PROG_INFO_INTERVAL: Duration = Duration::from_millis(300);

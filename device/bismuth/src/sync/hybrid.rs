@@ -18,20 +18,22 @@ impl SeqNo {
 }
 
 impl HybridSeqLock {
-    pub fn new() -> Self { Self(0) }
+    pub fn new() -> Self {
+        Self(0)
+    }
     pub fn read(&self) -> SeqNo {
-        let v = unsafe {
-            core::intrinsics::atomic_load_acquire(core::ptr::from_ref(&self.0))
-        };
+        let v = unsafe { core::intrinsics::atomic_load_acquire(core::ptr::from_ref(&self.0)) };
         SeqNo(v & SEQUENCE_MASK)
     }
     pub fn try_acquire_write_lock(&self) -> Option<WriteSentinel> {
-        let prev = unsafe { core::intrinsics::atomic_xchg_acqrel(core::ptr::from_ref(&self.0).cast_mut(), 1) };
+        let prev = unsafe {
+            core::intrinsics::atomic_xchg_acqrel(core::ptr::from_ref(&self.0).cast_mut(), 1)
+        };
         if prev == 0 {
             Some(WriteSentinel {
                 inner: core::ptr::from_ref(&self.0).cast_mut(),
                 progress: false,
-                _marker: Default::default()
+                _marker: Default::default(),
             })
         } else {
             None
@@ -47,7 +49,11 @@ pub struct WriteSentinel<'a> {
 
 impl<'a> WriteSentinel<'a> {
     pub fn progress(&mut self) {
-        assert!(!self.progress, "Already progress()'d WriteSentinel on {:p}", &self.inner);
+        assert!(
+            !self.progress,
+            "Already progress()'d WriteSentinel on {:p}",
+            &self.inner
+        );
         unsafe { core::intrinsics::atomic_xchg_acqrel(self.inner, PROGRESS_BIT) };
         self.progress = true;
     }
