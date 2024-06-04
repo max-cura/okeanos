@@ -447,6 +447,14 @@ impl RegionKind {
             RegionKind::Supersection => None,
         }
     }
+    pub fn size(&self) -> usize {
+        match self {
+            RegionKind::SmallPage => 4 * KiB,
+            RegionKind::LargePage => 64 * KiB,
+            RegionKind::Section => 1 * MiB,
+            RegionKind::Supersection => 16 * MiB,
+        }
+    }
 }
 
 #[derive(Debug, Error)]

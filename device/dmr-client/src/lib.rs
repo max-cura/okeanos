@@ -12,6 +12,8 @@
 #![feature(iter_repeat_n)]
 #![no_std]
 
+mod request;
+
 extern crate alloc;
 
 use alloc::boxed::Box;
@@ -123,6 +125,8 @@ pub extern "C" fn __bis__main() {
                 // .sd17()
                 .fsel26()
                 .input()
+                .fsel27()
+                .output()
         });
         peri.GPIO.gpfen0().write_with_zero(|w| w.bits(0x0000_0000));
         peri.GPIO.gpren0().write_with_zero(|w| w.bits(0x0000_0000));
@@ -139,498 +143,312 @@ pub extern "C" fn __bis__main() {
     let smi = unsafe { SMI::steal() };
     let dma = unsafe { DMA::steal() };
 
-    // let mut send_buf: [u32; 0x88] = [0; 0x88];
-    // send_buf[0] = 0x1111_0000;
-    // send_buf[1] = 0x3333_2222;
-    // send_buf[2] = 0x5555_4444;
-    // send_buf[3] = 0x7777_6666;
-    // send_buf[4] = 0x9999_8888;
-    // send_buf[5] = 0xbbbb_aaaa;
-    // send_buf[6] = 0xdddd_cccc;
-    // send_buf[7] = 0xffff_eeee;
-    // for i in 8..0x88 {
-    //     send_buf[i] = i as u32 * 0x0010_0101;
-    // }
-
-    // COMMAND: copy 256 bytes from 0x1000_0000 to 0x1000_1000
-    // let payload = DMA_CB {
-    //     ti: DMA_TI(0).with_src_inc(true).with_dest_inc(true),
-    //     srce_ad: mem_bus_addr(0x1000_0000),
-    //     dest_ad: mem_bus_addr(0x1000_1000),
-    //     tfr_len: 256,
-    //     stride: 0,
-    //     next_cb: 0,
-    //     debug: 0,
-    //     _unused: 0,
-    // };
-    //
-    // let payloads = vec![
-    //     // payload,
-    //     // DMA_CB {
-    //     //     ti: DMA_TI(0)
-    //     //         .with_src_inc(true)
-    //     //         .with_dest_dreq(true)
-    //     //         .with_permap(4),
-    //     //     srce_ad: mem_bus_addr(0x1000_0000),
-    //     //     dest_ad: mem_bus_addr(0x1000_1000),
-    //     //     tfr_len: 64,
-    //     //     stride: 0,
-    //     //     next_cb: 0,
-    //     //     debug: 0,
-    //     //     _unused: 0,
-    //     // },
-    //     // COMMAND: copy 4 bytes from smi_cached_cs to SMI_CS
-    //     DMA_CB {
-    //         ti: DMA_TI(0)
-    //             .with_src_dreq(true)
-    //             .with_dest_inc(true)
-    //             .with_permap(4)
-    //             .with_wait_resp(true),
-    //         srce_ad: reg_bus_addr(0x2060_000c),
-    //         dest_ad: mem_bus_addr(0x1000_1000),
-    //         tfr_len: 32,
-    //         stride: 0,
-    //         next_cb: 0,
-    //         debug: 0,
-    //         _unused: 0,
-    //     },
-    //     // DMA_CB {
-    //     //     ti: DMA_TI(0),
-    //     //     // .with_src_dreq(true)
-    //     //     // .with_dest_inc(true)
-    //     //     // .with_wait_resp(true),
-    //     //     srce_ad: mem_bus_addr(0x1000_2000),
-    //     //     dest_ad: reg_bus_addr(0x2060_0000),
-    //     //     tfr_len: 4,
-    //     //     stride: 0,
-    //     //     next_cb: mem_bus_addr(0x1000_3000 + 64),
-    //     //     debug: 0,
-    //     //     _unused: 0,
-    //     // },
-    //     // // COMMAND: copy 32 bytes from SMI data in to 0x1000_1000
-    //     // DMA_CB {
-    //     //     ti: DMA_TI(0)
-    //     //         .with_src_dreq(true)
-    //     //         .with_permap(4)
-    //     //         .with_dest_inc(true)
-    //     //         .with_wait_resp(true),
-    //     //     srce_ad: reg_bus_addr(0x2060_000c),
-    //     //     dest_ad: mem_bus_addr(0x1000_1000),
-    //     //     tfr_len: 64,
-    //     //     stride: 0,
-    //     //     next_cb: 0,
-    //     //     debug: 0,
-    //     //     _unused: 0,
-    //     // },
-    // ];
-    //
-    // let mut send_buf: [u32; 16] = [0; 16];
-    // for i in 0..16 {
-    //     send_buf[i] = i as u32 * 0x1111_1111;
-    // }
-    //
-    // // #[repr(C)]
-    // // struct Request {
-    // //     header: u32,
-    // //     // yeah we nasty
-    // //     dma: DMA_CB,
-    // //     footer: u32,
-    // // }
-    //
-    // __dsb();
-    //
-    // unsafe {
-    //     peri.GPIO.gpset0().write_with_zero(|w| w.set24().set_bit());
-    // }
-
     __dsb();
 
     cycle_init();
 
-    __dsb();
+    request::dmr_init(&smi, &cm_smi, &dma, st);
 
-    smi_init(
-        st,
-        &cm_smi,
+    uart1_sendln_bl!("SMI STATE: ");
+    uart1_sendln_bl!("SMI_CS={:?}", smi.cs.read());
+    uart1_sendln_bl!("SMI_DC={:?}", smi.dc.read());
+
+    let mut recv_buf = [0u32; 1024];
+    let c1 = cycle_read();
+    request::dmr_issue_read_command(
+        0x10002000,
+        RegionKind::SmallPage,
+        recv_buf.as_mut_ptr(),
         &smi,
-        SMIConfig {
-            width: SMIDataWidth::Bits16, // 1 us
-            clock_ns: 1000,              // 1us
-            setup_cycles: 15,
-            strobe_cycles: 40,
-            hold_cycles: 15,
-            pace_cycles: 0,
-        },
+        &dma,
+        &peri.GPIO,
+        0b000001,
     );
+    let c2 = cycle_read();
+    uart1_sendln_bl!("=== transfer (1) finished ({}) ===", c2 - c1);
+    for i in 0..8 {
+        let word = unsafe { recv_buf.as_mut_ptr().offset(i).read_volatile() };
+        uart1_sendln_bl!("word at recv_buf+{i} is {word:08x}");
+    }
 
-    fn mem_bus_addr(p: u32) -> u32 {
-        // FUCK YOU BROADCOM
-        // I WASTED 5 HOURS BECAUSE YOU GAVE ME THE WRONG GODDAMN VALUE
-        0x4000_0000 + p
-    }
-    fn reg_bus_addr(p: u32) -> u32 {
-        0x7e00_0000 + (p - 0x2000_0000)
-    }
+    uart1_sendln_bl!("SMI STATE: ");
+    uart1_sendln_bl!("SMI_CS={:?}", smi.cs.read());
+    uart1_sendln_bl!("SMI_DC={:?}", smi.dc.read());
 
     unsafe {
-        // peri.GPIO.gpset0().write_with_zero(|w| w.set24().set_bit());
+        peri.GPIO
+            .gpclr0()
+            .write_with_zero(|w| w.clr27().clear_bit_by_one())
+    }
+    delay_millis(st, 100);
 
-        __dsb();
+    uart1_sendln_bl!("starting second transaction...");
 
-        // uart1_sendln_bl!("setting up for DMA transfer");
-
-        smi.a.modify(|r| r.with_address(0b0000_01));
-        smi.da.modify(|r| r.with_address(0b0000_01));
-
-        smi.dc.modify(|r| r.with_dmap(true));
-        // smi.devices[0].dsw.modify(|r| r.with_wdreq(true));
-
-        // smi.devices[0].dsw.modify(|r| r.with_wdreq(true));
-
-        smi.cs.modify(|r| r.with_pxldat(true));
-        smi.cs.modify(|r| r.with_clear(true));
-        smi.cs.modify(|r| r.with_clear(true));
-        smi.cs.modify(|r| r.with_seterr(true));
-        smi.cs.modify(|r| r.with_aferr(true));
-        smi.dcs.modify(|r| r.with_enable(true));
-        smi.dc
-            .modify(|r| r.with_reqr(2).with_reqw(2).with_panicr(8).with_panicw(8));
-        // 8bit?
-        // smi.devices[0].dsr.modify(|r| r.with_rwidth(0));
-        // 0x110 transfers =
-        // smi.l.write(0x110);
-
-        static PAYLOAD: &[u32] = &[
-            0x80000000 // write
-                | 0x10001000 // address
-                | 0x00000000, // small page,
-        ];
-        // static PAYLOAD: &[u32] = &[
-        //     0x00000000 // read
-        //         | 0x10002000 // address
-        //         | 0x00000000, // small page,
-        // ];
-
-        let mut test_buf = [0u32; 1024];
-        for i in 0..1024 {
-            test_buf[i] = (i as u32) << 16 | (i as u32);
-        }
-
-        let mut cbs = vec![
-            DMA_CB {
-                ti: DMA_TI(0)
-                    .with_dest_dreq(true)
-                    .with_permap(4)
-                    .with_src_inc(true),
-                // .with_dest_inc(true),
-                srce_ad: mem_bus_addr(PAYLOAD.as_ptr() as usize as u32),
-                // 0x2060_0000, 4th field so 0x2060_000c
-                dest_ad: reg_bus_addr(0x2060_000c),
-                tfr_len: 4,
-                stride: 0,
-                next_cb: 0,
-                debug: 0,
-                _unused: 0,
-            },
-            DMA_CB {
-                ti: DMA_TI(0)
-                    .with_dest_dreq(true)
-                    .with_permap(4)
-                    .with_src_inc(true),
-                srce_ad: mem_bus_addr(test_buf.as_mut_ptr() as usize as u32),
-                dest_ad: reg_bus_addr(0x2060_000c),
-                tfr_len: 0x1000,
-                stride: 0,
-                next_cb: 0,
-                debug: 0,
-                _unused: 0,
-            },
-            DMA_CB {
-                ti: DMA_TI(0)
-                    .with_src_dreq(true)
-                    .with_dest_inc(true)
-                    .with_permap(4)
-                    .with_wait_resp(true),
-                srce_ad: reg_bus_addr(0x2060_000c),
-                dest_ad: mem_bus_addr(test_buf.as_mut_ptr() as usize as u32),
-                tfr_len: 0x1000,
-                stride: 0,
-                next_cb: 0,
-                debug: 0,
-                _unused: 0,
-            },
-        ];
-
-        smi.l.write(2);
-
-        smi.dc.modify(|r| r.with_dmaen(true));
-        smi.cs.modify(|r| r.with_write(true));
-        smi.cs.modify(|r| r.with_enable(true));
-        smi.cs.modify(|r| r.with_clear(true));
-
-        __dsb();
-        // enable
-        (0x2000_7ff0usize as *mut u32).write_volatile(1 << 5);
-        dma.devices[5].cs.write(DMA_CS(0).with_reset(true));
-
-        dma.devices[5]
-            .conblk_ad
-            .write(mem_bus_addr(cbs.as_slice().as_ptr() as usize as u32));
-        dma.devices[5].cs.write(DMA_CS(2));
-        dma.devices[5].debug.write(7);
-        dma.devices[5].cs.write(DMA_CS(1));
-
-        __dsb();
-
-        // force clock sync and give the receiver long enough get ready to read
-        smi_write(&smi, 0xffff);
-        // smi_write(&smi, 0x6666);
-        // smi_wait(&smi);
-        // delay_micros(st, 35);
-
-        __dsb();
-
-        smi.cs.modify(|r| r.with_start(true));
-
-        __dsb();
-
-        while dma.devices[5].txfr_len.read() > 0 {}
-        while dma.devices[5].cs.read().active() {}
-
-        let c1 = cycle_read();
-
-        __dsb();
-
-        // <READ
-        while !smi.cs.read().done() {}
-
-        // smi_wait(&smi);
-        // smi.cs.modify(|r| r.with_enable(false));
-        // smi.cs.modify(|r| r.with_clear(true).with_write(false));
-        // __dsb();
-        // </READ
-        smi.l.write(0x0800);
-        // <READ
-        // smi.cs.modify(|r| r.with_pxldat(true));
-        // smi.cs.modify(|r| r.with_enable(true));
-        // smi.cs.modify(|r| r.with_clear(true));
-        // __dsb();
-        // </READ
-
-        // smi.cs.modify(|r| r.with_clear(true));
-        // __dsb();
-        // smi.dcs.modify(|r| r.with_enable(false));
-        // smi.cs.modify(|r| r.with_enable(false));
-        // __dsb();
-        // smi.cs.modify(|r| {
-        //     r.with_write(false).with_clear(true)
-        //     // .with_seterr(true)
-        //     // .with_pxldat(true)
-        // });
-        // // // uart1_sendln_bl!("SMI_CS={:?}", smi.cs.read());
-        // __dsb();
-        // smi.cs.modify(|r| r.with_enable(true));
-
-        __dsb();
-
-        dma.devices[5].conblk_ad.write(mem_bus_addr(
-            // cbs.as_slice().as_ptr().offset(2) as usize as u32,
-            cbs.as_slice().as_ptr().offset(1) as usize as u32,
-        ));
-        dma.devices[5].cs.write(DMA_CS(2));
-        dma.devices[5].debug.write(7);
-
-        __dsb();
-
-        while peri.GPIO.gplev0().read().lev26().bit_is_set() {}
-        let c2 = cycle_read();
-
-        __dsb();
-
-        dma.devices[5].cs.write(DMA_CS(1));
-
-        __dsb();
-
-        // WRITE:
-        // smi_write(&smi, 0xffff);
-        // smi_wait(&smi);
-        // __dsb();
-        // delay_micros(st, 0);
-
-        __dsb();
-
-        smi.cs.modify(|r| r.with_start(true));
-
-        __dsb();
-
-        while dma.devices[5].txfr_len.read() > 0 {}
-        while dma.devices[5].cs.read().active() {}
-
-        __dsb();
-
-        uart1_sendln_bl!("=== transfer finished ({}) ===", c2 - c1);
-        for i in 0..8 {
-            let word = test_buf.as_mut_ptr().offset(i).read_volatile();
-            uart1_sendln_bl!("word at test_buf+{i} is {word:08x}");
-        }
+    let mut recv_buf = [0u32; 1024];
+    let c1 = cycle_read();
+    request::dmr_issue_read_command(
+        0x10002000,
+        RegionKind::SmallPage,
+        recv_buf.as_mut_ptr(),
+        &smi,
+        &dma,
+        &peri.GPIO,
+        0b000001,
+    );
+    let c2 = cycle_read();
+    uart1_sendln_bl!("=== transfer (1) finished ({}) ===", c2 - c1);
+    for i in 0..8 {
+        let word = unsafe { recv_buf.as_mut_ptr().offset(i).read_volatile() };
+        uart1_sendln_bl!("word at recv_buf+{i} is {word:08x}");
     }
 
-    // smi_init(
-    //     st,
-    //     &cm_smi,
+    // let mut send_buf = [0u32; 1024];
+    // for i in 0..1024 {
+    //     send_buf[i] = i as u32 * 0x0001_0001;
+    // }
+    // let c1 = cycle_read();
+    // request::dmr_issue_write_command(
+    //     0x10001000,
+    //     RegionKind::SmallPage,
+    //     send_buf.as_mut_ptr(),
     //     &smi,
-    //     SMIConfig {
-    //         width: SMIDataWidth::Bits16,
-    //         clock_ns: 1000, // 1us
-    //         setup_cycles: 25,
-    //         strobe_cycles: 50,
-    //         hold_cycles: 25,
-    //     },
+    //     &dma,
+    //     &peri.GPIO,
+    //     0b000001,
     // );
-    //
-    // uart1_sendln_bl!("smi_init finished");
-    //
-    // unsafe {
-    //     __dsb();
-    //     smi.a.write(SMI_A(0).with_device(0).with_address(0b0000_01));
-    //     smi.da
-    //         .write(SMI_DA(0).with_device(0).with_address(0b0000_01));
-    //
-    //     // smi.dc
-    //     //     .modify(|r| r.with_reqr(2).with_reqw(2).with_panicr(8).with_panicw(8));
-    //     smi.dc
-    //         .modify(|r| r.with_reqr(2).with_reqw(2).with_panicr(8).with_panicw(8));
-    //     smi.cs
-    //         .modify(|r| r.with_clear(true).with_aferr(true).with_pxldat(true));
-    //     // the wisdom of the ancients
-    //     smi.dcs.modify(|r| r.with_enable(true));
-    //     __dsb();
-    // }
-    //
-    // uart1_sendln_bl!(
-    //     "Secondary initialization finished, attempting to write, CS={:?}",
-    //     smi.cs.read()
-    // );
-    //
-    // let b1: [u32; 8] = [
-    //     0x22221111, 0x44443333, 0x66665555, 0x88887777, 0xaaaa9999, 0xccccbbbb, 0xeeeedddd,
-    //     0x0000ffff,
-    // ];
-    // // let mut counter = 0xffffu16;
-    // let mut buf = [0u32; 0x88];
-    // for i in 0..0x80 {
-    //     buf[i] = i as u32 * 0x0010_0101;
-    // }
-    // buf[0..8].copy_from_slice(&b1);
-    // uart1_sendln_bl!("Buffer initialized");
-    // let mut count = 0;
-    //
-    // // fn mem_bus_addr(p: u32) -> u32 {
-    // //     0xc000_0000 + p
-    // // }
-    // // fn reg_bus_addr(p: u32) -> u32 {
-    // //     0x7e00_0000 + (p - 0x2000_0000)
-    // // }
-    // //
-    // // // DMA
-    // // let dma = unsafe { DMA::steal() };
-    // // unsafe {
-    // //     smi.l.write(0x108);
-    // //     smi.dc.modify(|r| r.with_dmaen(true));
-    // //     smi.cs.modify(|r| r.with_write(true));
-    // //     smi.cs.modify(|r| r.with_enable(true));
-    // //     smi.cs.modify(|r| r.with_clear(true));
-    // // }
-    // //
-    // // loop {
-    // //     unsafe {
-    // //         __dsb();
-    // //         // enable_dma(DMA_CHAN_A);
-    // //         // DMA_CHAN_A=10
-    // //         dma.enable.modify(|r| r.with_bit::<10>(true));
-    // //         dma.devices[10].cs.write(DMA_CS(0).with_reset(true));
-    // //         __dsb();
-    // //
-    // //         let cbs = Box::into_raw(Box::new(DMA_CB {
-    // //             ti: DMA_TI(0)
-    // //                 .with_dest_dreq(true)
-    // //                 .with_permap(4)
-    // //                 .with_src_inc(true),
-    // //             srce_ad: mem_bus_addr(buf.as_mut_ptr() as usize as u32),
-    // //             dest_ad: reg_bus_addr(core::ptr::addr_of!(smi.d) as usize as u32),
-    // //             tfr_len: 0x108 * 4,
-    // //             stride: 0,
-    // //             next_cb: 0,
-    // //             debug: 0,
-    // //             _unused: 0,
-    // //         }));
-    // //         uart1_sendln_bl!("cbs={cbs:p}");
-    // //         __dsb();
-    // //         // start_dma(mp, DMA_CHAN_A, &cbs[0], 0);
-    // //         dma.devices[10]
-    // //             .conblk_ad
-    // //             .write(mem_bus_addr(cbs as usize as u32));
-    // //         dma.devices[10].cs.write(DMA_CS(2));
-    // //         dma.devices[10].debug.write(7);
-    // //         dma.devices[10].cs.write(DMA_CS(1));
-    // //         __dsb();
-    // //
-    // //         smi.cs.modify(|r| r.with_start(true));
-    // //         __dsb();
-    // //
-    // //         // dma_wait(DMA_CHAN_A);
-    // //         // > while dma_transfer_len(DMA_CHAN_A) > 0
-    // //         while dma.devices[10].txfr_len.read() > 0 {}
-    // //
-    // //         delay_millis(st, 1000);
-    // //     }
-    // // }
-    //
-    // loop {
-    //     // smi_write(&smi, counter);
-    //     // counter = counter.wrapping_add(0x0101);
-    //     // smi_wait(&smi);
-    //     //
-    //     // smi_write(&smi, counter);
-    //     // counter = counter.wrapping_add(0x0101);
-    //     // smi_wait(&smi);
-    //     //
-    //     // smi_write(&smi, counter);
-    //     // counter = counter.wrapping_add(0x0101);
-    //     // smi_wait(&smi);
-    //     //
-    //     // smi_write(&smi, counter);
-    //     // counter = counter.wrapping_add(0x0101);
-    //     write_fifo(&b1, &smi);
-    //     write_fifo(&buf, &smi);
-    //
-    //     uart1_sendln_bl!("sent #{count}");
-    //     count += 1;
-    //     // uart1_sendln_bl!("sent {:04x}-{counter:04x}", counter.wrapping_sub(0x0404));
-    //     delay_millis(st, 1000);
+    // let c2 = cycle_read();
+    // uart1_sendln_bl!("=== transfer (2) finished ({}) ===", c2 - c1);
+    // for i in 0..8 {
+    //     let word = unsafe { send_buf.as_mut_ptr().offset(i).read_volatile() };
+    //     uart1_sendln_bl!("word at send_buf+{i} is {word:08x}");
     // }
 
+    // __dsb();
+    //
     // smi_init(
     //     st,
     //     &cm_smi,
     //     &smi,
     //     SMIConfig {
-    //         width: SMIDataWidth::Bits16,
-    //         clock_ns: 1000,
+    //         width: SMIDataWidth::Bits16, // 1 us
+    //         clock_ns: 1000,              // 1us
     //         setup_cycles: 15,
     //         strobe_cycles: 40,
     //         hold_cycles: 15,
     //         pace_cycles: 0,
     //     },
     // );
-    // unsafe {
-    //     smi.a.write(SMI_A(0).with_address(0b000001));
-    //     smi.cs
-    //         .modify(|r| r.with_clear(true).with_aferr(true).with_pxldat(true));
-    //     // the wisdom of the ancients
-    //     // smi.dcs.modify(|r| r.with_enable(true));
     //
-    //     write_fifo(&[0x11110000, 0x33332222, 0x5555_5555, 0xf1f1f0f0], &smi);
+    // fn mem_bus_addr(p: u32) -> u32 {
+    //     // FUCK YOU BROADCOM
+    //     // I WASTED 5 HOURS BECAUSE YOU GAVE ME THE WRONG GODDAMN VALUE
+    //     0x4000_0000 + p
+    // }
+    // fn reg_bus_addr(p: u32) -> u32 {
+    //     0x7e00_0000 + (p - 0x2000_0000)
+    // }
+    //
+    // unsafe {
+    //     // peri.GPIO.gpset0().write_with_zero(|w| w.set24().set_bit());
+    //
+    //     __dsb();
+    //
+    //     // uart1_sendln_bl!("setting up for DMA transfer");
+    //
+    //     smi.a.modify(|r| r.with_address(0b0000_01));
+    //     smi.da.modify(|r| r.with_address(0b0000_01));
+    //
+    //     smi.dc.modify(|r| r.with_dmap(true));
+    //     // smi.devices[0].dsw.modify(|r| r.with_wdreq(true));
+    //
+    //     // smi.devices[0].dsw.modify(|r| r.with_wdreq(true));
+    //
+    //     smi.cs.modify(|r| r.with_pxldat(true));
+    //     smi.cs.modify(|r| r.with_clear(true));
+    //     smi.cs.modify(|r| r.with_clear(true));
+    //     smi.cs.modify(|r| r.with_seterr(true));
+    //     smi.cs.modify(|r| r.with_aferr(true));
+    //     smi.dcs.modify(|r| r.with_enable(true));
+    //     smi.dc
+    //         .modify(|r| r.with_reqr(2).with_reqw(2).with_panicr(8).with_panicw(8));
+    //     // 8bit?
+    //     // smi.devices[0].dsr.modify(|r| r.with_rwidth(0));
+    //     // 0x110 transfers =
+    //     // smi.l.write(0x110);
+    //
+    //     static PAYLOAD: &[u32] = &[
+    //         0x80000000 // write
+    //             | 0x10001000 // address
+    //             | 0x00000000, // small page,
+    //     ];
+    //     // static PAYLOAD: &[u32] = &[
+    //     //     0x00000000 // read
+    //     //         | 0x10002000 // address
+    //     //         | 0x00000000, // small page,
+    //     // ];
+    //
+    //     let mut test_buf = [0u32; 1024];
+    //     for i in 0..1024 {
+    //         test_buf[i] = (i as u32) << 16 | (i as u32);
+    //     }
+    //
+    //     let mut cbs = vec![
+    //         DMA_CB {
+    //             ti: DMA_TI(0)
+    //                 .with_dest_dreq(true)
+    //                 .with_permap(4)
+    //                 .with_src_inc(true),
+    //             // .with_dest_inc(true),
+    //             srce_ad: mem_bus_addr(PAYLOAD.as_ptr() as usize as u32),
+    //             // 0x2060_0000, 4th field so 0x2060_000c
+    //             dest_ad: reg_bus_addr(0x2060_000c),
+    //             tfr_len: 4,
+    //             stride: 0,
+    //             next_cb: 0,
+    //             debug: 0,
+    //             _unused: 0,
+    //         },
+    //         DMA_CB {
+    //             ti: DMA_TI(0)
+    //                 .with_dest_dreq(true)
+    //                 .with_permap(4)
+    //                 .with_src_inc(true),
+    //             srce_ad: mem_bus_addr(test_buf.as_mut_ptr() as usize as u32),
+    //             dest_ad: reg_bus_addr(0x2060_000c),
+    //             tfr_len: 0x1000,
+    //             stride: 0,
+    //             next_cb: 0,
+    //             debug: 0,
+    //             _unused: 0,
+    //         },
+    //         DMA_CB {
+    //             ti: DMA_TI(0)
+    //                 .with_src_dreq(true)
+    //                 .with_dest_inc(true)
+    //                 .with_permap(4)
+    //                 .with_wait_resp(true),
+    //             srce_ad: reg_bus_addr(0x2060_000c),
+    //             dest_ad: mem_bus_addr(test_buf.as_mut_ptr() as usize as u32),
+    //             tfr_len: 0x1000,
+    //             stride: 0,
+    //             next_cb: 0,
+    //             debug: 0,
+    //             _unused: 0,
+    //         },
+    //     ];
+    //
+    //     smi.l.write(2);
+    //
+    //     smi.dc.modify(|r| r.with_dmaen(true));
+    //     smi.cs.modify(|r| r.with_write(true));
+    //     smi.cs.modify(|r| r.with_enable(true));
+    //     smi.cs.modify(|r| r.with_clear(true));
+    //
+    //     __dsb();
+    //     // enable
+    //     (0x2000_7ff0usize as *mut u32).write_volatile(1 << 5);
+    //     dma.devices[5].cs.write(DMA_CS(0).with_reset(true));
+    //
+    //     dma.devices[5]
+    //         .conblk_ad
+    //         .write(mem_bus_addr(cbs.as_slice().as_ptr() as usize as u32));
+    //     dma.devices[5].cs.write(DMA_CS(2));
+    //     dma.devices[5].debug.write(7);
+    //     dma.devices[5].cs.write(DMA_CS(1));
+    //
+    //     __dsb();
+    //
+    //     // force clock sync and give the receiver long enough get ready to read
+    //     smi_write(&smi, 0xffff);
+    //     // smi_write(&smi, 0x6666);
+    //     // smi_wait(&smi);
+    //     // delay_micros(st, 35);
+    //
+    //     __dsb();
+    //
+    //     smi.cs.modify(|r| r.with_start(true));
+    //
+    //     __dsb();
+    //
+    //     while dma.devices[5].txfr_len.read() > 0 {}
+    //     while dma.devices[5].cs.read().active() {}
+    //
+    //     let c1 = cycle_read();
+    //
+    //     __dsb();
+    //
+    //     // <READ
+    //     while !smi.cs.read().done() {}
+    //
+    //     // smi_wait(&smi);
+    //     // smi.cs.modify(|r| r.with_enable(false));
+    //     // smi.cs.modify(|r| r.with_clear(true).with_write(false));
+    //     // __dsb();
+    //     // </READ
+    //     smi.l.write(0x0800);
+    //     // <READ
+    //     // smi.cs.modify(|r| r.with_pxldat(true));
+    //     // smi.cs.modify(|r| r.with_enable(true));
+    //     // smi.cs.modify(|r| r.with_clear(true));
+    //     // __dsb();
+    //     // </READ
+    //
+    //     // smi.cs.modify(|r| r.with_clear(true));
+    //     // __dsb();
+    //     // smi.dcs.modify(|r| r.with_enable(false));
+    //     // smi.cs.modify(|r| r.with_enable(false));
+    //     // __dsb();
+    //     // smi.cs.modify(|r| {
+    //     //     r.with_write(false).with_clear(true)
+    //     //     // .with_seterr(true)
+    //     //     // .with_pxldat(true)
+    //     // });
+    //     // // // uart1_sendln_bl!("SMI_CS={:?}", smi.cs.read());
+    //     // __dsb();
+    //     // smi.cs.modify(|r| r.with_enable(true));
+    //
+    //     __dsb();
+    //
+    //     dma.devices[5].conblk_ad.write(mem_bus_addr(
+    //         // cbs.as_slice().as_ptr().offset(2) as usize as u32,
+    //         cbs.as_slice().as_ptr().offset(1) as usize as u32,
+    //     ));
+    //     dma.devices[5].cs.write(DMA_CS(2));
+    //     dma.devices[5].debug.write(7);
+    //
+    //     __dsb();
+    //
+    //     while peri.GPIO.gplev0().read().lev26().bit_is_set() {}
+    //     let c2 = cycle_read();
+    //
+    //     __dsb();
+    //
+    //     dma.devices[5].cs.write(DMA_CS(1));
+    //
+    //     __dsb();
+    //
+    //     // WRITE:
+    //     // smi_write(&smi, 0xffff);
+    //     // smi_wait(&smi);
+    //     // __dsb();
+    //     // delay_micros(st, 0);
+    //
+    //     __dsb();
+    //
+    //     smi.cs.modify(|r| r.with_start(true));
+    //
+    //     __dsb();
+    //
+    //     while dma.devices[5].txfr_len.read() > 0 {}
+    //     while dma.devices[5].cs.read().active() {}
+    //
+    //     __dsb();
+    //
+    //     uart1_sendln_bl!("=== transfer finished ({}) ===", c2 - c1);
+    //     for i in 0..8 {
+    //         let word = test_buf.as_mut_ptr().offset(i).read_volatile();
+    //         uart1_sendln_bl!("word at test_buf+{i} is {word:08x}");
+    //     }
     // }
 }
 
@@ -726,22 +544,5 @@ fn write_bytes(s: &[u8]) {
     }
 }
 
-// /* */
-// pub struct SimpleGlobal(pub(crate) OnceLock<SimpleAlloc>);
-//
-// unsafe impl GlobalAlloc for SimpleGlobal {
-//     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-//         self.0.get().unwrap().alloc(layout)
-//     }
-//
-//     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-//         self.0.get().unwrap().dealloc(ptr, layout)
-//     }
-// }
-
 #[no_mangle]
 pub extern "C" fn __aeabi_unwind_cpp_pr0() {}
-//
-// #[global_allocator]
-// pub(crate) static GLOBAL_ALLOC: SimpleGlobal = SimpleGlobal(OnceLock::new());
-// /* */

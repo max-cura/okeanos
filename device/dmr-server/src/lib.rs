@@ -129,6 +129,8 @@ pub extern "C" fn __bis__main() {
                 // .sd17()
                 .fsel26()
                 .output()
+                .fsel27()
+                .output()
         });
         peri.GPIO.gpfen0().write_with_zero(|w| w.bits(0x0000_0000));
         peri.GPIO.gpren0().write_with_zero(|w| w.bits(0x0000_0000));
@@ -255,6 +257,10 @@ pub extern "C" fn __bis__main() {
         // smi_cs_cached.write_volatile(smi.cs.read().with_start(true).0);
 
         __dsb();
+
+        uart1_sendln_bl!("SMI STATE: ");
+        uart1_sendln_bl!("SMI_CS={:?}", smi.cs.read());
+        uart1_sendln_bl!("SMI_DC={:?}", smi.dc.read());
 
         loop {
             unsafe {
@@ -383,8 +389,8 @@ pub extern "C" fn __bis__main() {
                             //
                             // asm!("nop", "nop", "nop", "nop");
                             // asm!("nop", "nop", "nop", "nop");
-                            // asm!("nop", "nop", "nop", "nop");
-                            // asm!("nop", "nop", "nop", "nop");
+                            asm!("nop", "nop", "nop", "nop");
+                            asm!("nop", "nop", "nop", "nop");
                             // __dsb();
                             // smi.cs.modify(|r| r.with_pad(2));
                             __dsb();
@@ -392,11 +398,11 @@ pub extern "C" fn __bis__main() {
                             __dsb();
                             let c2 = cycle_read();
                             smi.cs.modify(|r| r.with_start(true));
+                            while dma.devices[5].cs.read().active() {}
+                            while dma.devices[5].txfr_len.read() > 0 {}
                             __dsb();
                             peri.GPIO.gpset0().write_with_zero(|w| w.set26().set_bit());
                             __dsb();
-                            while dma.devices[5].cs.read().active() {}
-                            while dma.devices[5].txfr_len.read() > 0 {}
                             __dsb();
                             uart1_sendln_bl!(
                                 "=== transfer finished ({}cy): {addr:08x}: {byte_count:08x} ===",
@@ -407,184 +413,85 @@ pub extern "C" fn __bis__main() {
                                 let word = word_ptr.read_volatile();
                                 uart1_sendln_bl!("word at {word_ptr:p} is {word:08x}");
                             }
+                            __dsb();
+                            while smi.cs.read().active() {}
+                            while !smi.cs.read().done() {}
                             smi.cs.modify(|r| r.with_write(false));
+                            __dsb();
                         }
-                        // uart1_sendln_bl!("==== BUFFER ====");
-                        // for word in buf {
-                        //     uart1_sendln_bl!("{word:08x}");
-                        // }
+                        // uart1_sendln_bl!("SMI STATE: ");
+                        // uart1_sendln_bl!("SMI_CS={:?}", smi.cs.read());
+                        // uart1_sendln_bl!("SMI_DC={:?}", smi.dc.read());
                     }
                     unsafe { peri.GPIO.gpeds0().write_with_zero(|w| w.bits(0xffff_ffff)) };
                 }
             }
         }
     }
-
-    // unsafe {
-    //     __dsb();
-    //     // smi.a.write(SMI_A(0).with_device(0).with_address(0b000011));
-    //     // smi.da.write(SMI_DA(0).with_device(0).with_address(0b111111));
-    //     smi.cs
-    //         .modify(|r| r.with_clear(true).with_aferr(true).with_pxldat(true));
-    //     // the wisdom of the ancients
-    //     smi.dcs.modify(|r| r.with_enable(true));
-    //     __dsb();
-    // }
-
-    // // let mut buf = vec![0u16; 0x100];
-    // // // let mut i = 0;
-    // // let mut buf = vec![0; 0x88];
-    // let mut cmd_buf = [0u32; 3];
-    // loop {
-    //     unsafe {
-    //         let c1 = cycle_read();
-    //         let eds = peri.GPIO.gpeds0().read();
-    //         if eds.bits() != 0 {
-    //             let lev = peri.GPIO.gplev0().read().bits();
-    //             // server select
-    //             // SA5 high, SA4 low, SA3:SA0 = 0000
-    //             if lev & 0x3f == 0x20 {
-    //                 // let hw = ((lev & 0x00ffff00) >> 8) as u16;
-    //                 // buf[i] = hw;
-    //                 // i += 1;
-    //                 // if i == 0x100 {
-    //                 //     // 256 * 8 = 2048B, 115200 ~ 11.52kB/s
-    //                 //     for &b in &buf {
-    //                 //         uart1_sendln_bl!("{b:08x}");
-    //                 //     }
-    //                 //     // buf.clear();
-    //                 //     i = 0;
-    //                 // }
-    //                 read_fifo(&mut cmd_buf, &smi);
-    //
-    //                 uart1_sendln_bl!("received:");
-    //                 for &b in &cmd_buf {
-    //                     uart1_sendln_bl!("{b:08x}");
-    //                 }
-    //                 uart1_sendln_bl!("c1={c1}");
-    //                 uart1_sendln_bl!("lev={lev:08x}");
-    //             }
-    //             unsafe { peri.GPIO.gpeds0().write_with_zero(|w| w.bits(0xffff_ffff)) };
-    //         }
-    //     }
-    // }
-
-    fn smi_read_single_word(smi: &SMI) -> u32 {
-        unsafe {
-            smi.dcs.write(SMI_DCS(0).with_enable(true));
-            smi.dcs.write(SMI_DCS(0).with_enable(true).with_start(true));
-            __dsb();
-            while !smi.dcs.read().done() {}
-            let r = smi.dd.read();
-            __dsb();
-            r
-        }
-    }
-
-    fn read_fifo(buf: &mut [u32], smi: &SMI) {
-        if smi.cs.read().rxd() {
-            uart1_sendln_bl!("WARNING: SMI RX FIFO populated at start of read");
-            while smi.cs.read().rxd() {}
-        }
-
-        // let c2 = cycle_read();
-
-        // hehe
-        smi_init_programmed_read(buf.len() / 2, smi);
-
-        // let c3 = cycle_read();
-        let mut i = 0;
-        loop {
-            let cs = smi.cs.read();
-            if cs.rxd() {
-                let w = smi.d.read();
-                // uart1_sendln_bl!("{w:08x}");
-                buf[i] = w;
-                i += 1;
-            }
-            if cs.done() {
-                break;
-            }
-        }
-        if smi.cs.read().rxd() {
-            let fifo_count = smi.fd.read().fcnt() as usize;
-            for _ in 0..fifo_count {
-                let w = smi.d.read();
-                // uart1_sendln_bl!("{w:08x}");
-                buf[i] = w;
-                i += 1;
-            }
-        }
-        if !smi.cs.read().done() {
-            uart1_sendln_bl!("WARNING: transaction finished but DONE bit not set.");
-        }
-        if smi.cs.read().rxd() {
-            uart1_sendln_bl!("WARNING: read FIFO not empty at end of read call.");
-        }
-        // uart1_sendln_bl!("c2={c2}");
-        // uart1_sendln_bl!("c3={c3}");
-    }
-
-    fn smi_init_programmed_read(n_bytes: usize, smi: &SMI) {
-        unsafe {
-            smi.cs.modify(|r| r.with_enable(false).with_write(false));
-            while smi.cs.read().enable() {}
-
-            smi.l.write(n_bytes as u32);
-
-            smi.cs.modify(|r| r.with_enable(true));
-            __dsb();
-            while smi.cs.read().active() {}
-            smi.cs.modify(|r| r.with_clear(true));
-            smi.cs.modify(|r| r.with_start(true));
-        }
-    }
-
-    // unsafe { peri.GPIO.gpfen0().write_with_zero(|w| w.bits(0x0000_0000)) }
-    // unsafe { peri.GPIO.gpren0().write_with_zero(|w| w.bits(0x0000_0000)) }
-    // unsafe { peri.GPIO.gpafen0().write_with_zero(|w| w.bits(0x0000_00c0)) }
-    // unsafe { peri.GPIO.gparen0().write_with_zero(|w| w.bits(0x0000_00c0)) }
-    // unsafe { peri.GPIO.gplen0().write_with_zero(|w| w.bits(0x0000_0000)) }
-    // unsafe { peri.GPIO.gphen0().write_with_zero(|w| w.bits(0x0000_0000)) }
-    //
-    // __dsb();
-    //
-    // let mut arr = [0; 24];
-    //
-    // loop {
-    //     __dsb();
-    //     while (peri.GPIO.gpeds0().read().bits() & 0b11000000) == 0 {}
-    //     unsafe { peri.GPIO.gpeds0().write_with_zero(|w| w.bits(0xffffffff)) }
-    //     let lev = peri.GPIO.gplev0().read().bits();
-    //     __dsb();
-    //     for i in 0..24 {
-    //         arr[i] = if lev & (0x80_0000 >> i) == 0 {
-    //             b'0'
-    //         } else {
-    //             b'1'
-    //         };
-    //     }
-    //
-    //     uart1_sendln_bl!("{}", unsafe { core::str::from_utf8_unchecked(&arr) });
-    // }
 }
-//
-// /* */
-// pub struct SimpleGlobal(pub(crate) OnceLock<SimpleAlloc>);
-//
-// unsafe impl GlobalAlloc for SimpleGlobal {
-//     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-//         self.0.get().unwrap().alloc(layout)
-//     }
-//
-//     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-//         self.0.get().unwrap().dealloc(ptr, layout)
+
+// fn smi_read_single_word(smi: &SMI) -> u32 {
+//     unsafe {
+//         smi.dcs.write(SMI_DCS(0).with_enable(true));
+//         smi.dcs.write(SMI_DCS(0).with_enable(true).with_start(true));
+//         __dsb();
+//         while !smi.dcs.read().done() {}
+//         let r = smi.dd.read();
+//         __dsb();
+//         r
 //     }
 // }
 //
+// fn read_fifo(buf: &mut [u32], smi: &SMI) {
+//     if smi.cs.read().rxd() {
+//         uart1_sendln_bl!("WARNING: SMI RX FIFO populated at start of read");
+//         while smi.cs.read().rxd() {}
+//     }
+//
+//     smi_init_programmed_read(buf.len() / 2, smi);
+//
+//     let mut i = 0;
+//     loop {
+//         let cs = smi.cs.read();
+//         if cs.rxd() {
+//             let w = smi.d.read();
+//             buf[i] = w;
+//             i += 1;
+//         }
+//         if cs.done() {
+//             break;
+//         }
+//     }
+//     if smi.cs.read().rxd() {
+//         let fifo_count = smi.fd.read().fcnt() as usize;
+//         for _ in 0..fifo_count {
+//             let w = smi.d.read();
+//             buf[i] = w;
+//             i += 1;
+//         }
+//     }
+//     if !smi.cs.read().done() {
+//         uart1_sendln_bl!("WARNING: transaction finished but DONE bit not set.");
+//     }
+//     if smi.cs.read().rxd() {
+//         uart1_sendln_bl!("WARNING: read FIFO not empty at end of read call.");
+//     }
+// }
+//
+// fn smi_init_programmed_read(n_bytes: usize, smi: &SMI) {
+//     unsafe {
+//         smi.cs.modify(|r| r.with_enable(false).with_write(false));
+//         while smi.cs.read().enable() {}
+//
+//         smi.l.write(n_bytes as u32);
+//
+//         smi.cs.modify(|r| r.with_enable(true));
+//         __dsb();
+//         while smi.cs.read().active() {}
+//         smi.cs.modify(|r| r.with_clear(true));
+//         smi.cs.modify(|r| r.with_start(true));
+//     }
+// }
+
 #[no_mangle]
 pub extern "C" fn __aeabi_unwind_cpp_pr0() {}
-
-// #[global_allocator]
-// pub(crate) static GLOBAL_ALLOC: SimpleGlobal = SimpleGlobal(OnceLock::new());
-// /* */
