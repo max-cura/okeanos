@@ -211,7 +211,7 @@ pub fn dmr_issue_read_command(
 
     __dsb();
 
-    unsafe { gpio.gpset0().write_with_zero(|w| w.set27().set_bit()) }
+    // unsafe { gpio.gpset0().write_with_zero(|w| w.set27().set_bit()) }
 
     while gpio.gplev0().read().lev26().bit_is_set() {}
 

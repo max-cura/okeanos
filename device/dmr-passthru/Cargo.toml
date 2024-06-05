@@ -9,3 +9,4 @@ crate-type = ["staticlib"]
 [dependencies]
 bcm2835-lpa = "0.4.0"
 bismuth = { path = "../bismuth" }
+embedded-alloc = "0.5.1"

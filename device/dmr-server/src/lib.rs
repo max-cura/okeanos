@@ -342,7 +342,10 @@ pub extern "C" fn __bis__main() {
                             while dma.devices[5].cs.read().active() {}
                             while dma.devices[5].txfr_len.read() > 0 {}
                             __dsb();
-                            uart1_sendln_bl!("=== transfer finished ({}) ===", c2 - c1);
+                            uart1_sendln_bl!(
+                                "=== write transfer ({command:08x}) finished ({}) ===",
+                                c2 - c1
+                            );
                             for i in 0..8 {
                                 let word_ptr = (addr as usize as *mut u32).offset(i);
                                 let word = word_ptr.read_volatile();
@@ -405,7 +408,7 @@ pub extern "C" fn __bis__main() {
                             __dsb();
                             __dsb();
                             uart1_sendln_bl!(
-                                "=== transfer finished ({}cy): {addr:08x}: {byte_count:08x} ===",
+                                "=== read transfer ({command:08x}) finished ({}cy): {addr:08x}: {byte_count:08x} ===",
                                 c2 - c1
                             );
                             for i in 0..8 {
@@ -417,11 +420,26 @@ pub extern "C" fn __bis__main() {
                             while smi.cs.read().active() {}
                             while !smi.cs.read().done() {}
                             smi.cs.modify(|r| r.with_write(false));
-                            __dsb();
                         }
                         // uart1_sendln_bl!("SMI STATE: ");
                         // uart1_sendln_bl!("SMI_CS={:?}", smi.cs.read());
                         // uart1_sendln_bl!("SMI_DC={:?}", smi.dc.read());
+
+                        // Get ready for the next transfer
+
+                        __dsb();
+                        dma.devices[5]
+                            .conblk_ad
+                            .write(mem_bus_addr(cbs_p as usize as u32));
+                        dma.devices[5].cs.write(DMA_CS(2));
+                        dma.devices[5].debug.write(7);
+                        dma.devices[5].cs.write(DMA_CS(1));
+                        __dsb();
+                        smi.l.write(2);
+                        smi.cs.modify(|r| r.with_pxldat(true));
+                        smi.cs.modify(|r| r.with_enable(true));
+                        smi.cs.modify(|r| r.with_clear(true));
+                        __dsb();
                     }
                     unsafe { peri.GPIO.gpeds0().write_with_zero(|w| w.bits(0xffff_ffff)) };
                 }
