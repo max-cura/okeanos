@@ -1,0 +1,19 @@
+#gpu_mem=64
+# headless, don't need much
+gpu_mem=16
+
+arm_freq=700
+core_freq=250
+
+kernel=kernel.img
+kernel_address=0x8000
+
+# on the pi zero w you need this line or it won't work.
+# zhouheng sun found this!
+enable_uart=1 
+
+
+# modifications
+camera_auto_detect=0
+display_auto_detect=0
+#dtoverlay=

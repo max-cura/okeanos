@@ -1,0 +1,7 @@
+[package]
+name = "okdude"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+okboot-common = { path = "../../common/okboot-common", features = ["std", "compress-simd", "alloc"] }

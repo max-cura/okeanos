@@ -1,0 +1,18 @@
+[package]
+name = "okboot-common"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+alloc = ["musli/alloc", "miniz_oxide/alloc"]
+std = ["alloc", "musli/std", "miniz_oxide/std"]
+compress-simd = ["miniz_oxide/simd"]
+default = []
+
+[dependencies]
+musli = { version = "0.0.122", default-features = false, features = ["wire"] }
+
+miniz_oxide = { version = "0.7.4", default-features = false }
+crc32fast = { version = "1.4.2", default-features = false, features = ["nightly"] }
+
+thiserror = { version = "1.0", package = "thiserror-core", default-features = false }
