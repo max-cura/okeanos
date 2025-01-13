@@ -32,29 +32,30 @@ impl PreambleDecoder {
         self.state = PreambleState::Initial
     }
     fn feed(&mut self, byte: u8) -> Result<bool, PreambleError> {
-        let state;
+        let new_state;
         match (self.state, byte) {
             (PreambleState::Initial, 0x55) => {
-                state = PreambleState::Preamble1;
+                new_state = PreambleState::Preamble1;
             }
             (PreambleState::Preamble1, 0x55) => {
-                state = PreambleState::Preamble2;
+                new_state = PreambleState::Preamble2;
             }
             (PreambleState::Preamble2, 0x55) => {
-                state = PreambleState::Preamble3;
+                new_state = PreambleState::Preamble3;
             }
             (PreambleState::Preamble3, 0x5e) => {
-                state = PreambleState::Finished;
+                new_state = PreambleState::Finished;
             }
             (PreambleState::Preamble3, 0x55) => {
-                state = PreambleState::Preamble3;
+                new_state = PreambleState::Preamble3;
             }
             (state, wrong_byte) => {
                 self.state = PreambleState::Initial;
                 return Err(PreambleError { state, wrong_byte });
             }
         }
-        Ok(state == PreambleState::Finished)
+        self.state = new_state;
+        Ok(new_state == PreambleState::Finished)
     }
 }
 /// Decodes the preamble from a message stream.
@@ -95,7 +96,7 @@ pub enum CobsState {
     Finished,
 }
 #[derive(Debug)]
-struct CobsDecoder {
+pub struct CobsDecoder {
     frame_loc: usize,
     bytes_since_last_jump: usize,
     last_jump: usize,
@@ -171,42 +172,6 @@ impl CobsDecoder {
         }
     }
 }
-pub enum CobsStateCRC {
-    Skip,
-    Byte(u8),
-    Finished(u32),
-}
-#[derive(Debug)]
-pub struct CobsLayer {
-    cobs_decoder: CobsDecoder,
-    crc: crc32fast::Hasher,
-}
-impl CobsLayer {
-    pub fn with_xor(xor: u8) -> Self {
-        Self {
-            cobs_decoder: CobsDecoder::new(xor),
-            crc: crc32fast::Hasher::new(),
-        }
-    }
-    pub fn reset(&mut self) {
-        self.cobs_decoder.reset();
-        self.crc = crc32fast::Hasher::new();
-    }
-    pub fn poll(&mut self, byte: u8) -> Result<CobsStateCRC, CobsError> {
-        self.cobs_decoder
-            .poll(byte)
-            .map(|cobs_state| match cobs_state {
-                CobsState::Byte(b) => {
-                    self.crc.write_u8(b);
-                    CobsStateCRC::Byte(b)
-                }
-                CobsState::Finished => CobsStateCRC::Finished(
-                    core::mem::replace(&mut self.crc, crc32fast::Hasher::new()).finalize(),
-                ),
-                CobsState::Skip => CobsStateCRC::Skip,
-            })
-    }
-}
 
 #[derive(Debug, Copy, Clone)]
 pub struct FrameHeader {
@@ -240,12 +205,13 @@ enum FrameState {
 #[derive(Debug)]
 pub struct FrameLayer {
     preamble_layer: PreambleLayer,
-    cobs_layer: CobsLayer,
+    cobs_decoder: CobsDecoder,
 
     header_bytes: [u8; 8],
     crc_bytes: [u8; 4],
     frame_header: Option<FrameHeader>,
     decode_state: FrameState,
+    crc: crc32fast::Hasher,
 }
 #[derive(Debug, Copy, Clone)]
 pub enum FrameOutput {
@@ -258,13 +224,17 @@ impl FrameLayer {
     pub fn new(cobs_xor: u8) -> Self {
         Self {
             preamble_layer: PreambleLayer::new(),
-            cobs_layer: CobsLayer::with_xor(cobs_xor),
+            cobs_decoder: CobsDecoder::new(cobs_xor),
 
             header_bytes: [0; 8],
             crc_bytes: [0; 4],
             frame_header: None,
             decode_state: FrameState::Preamble,
+            crc: crc32fast::Hasher::new(),
         }
+    }
+    pub fn skip_preamble(&mut self) {
+        self.decode_state = FrameState::Packet(0);
     }
     fn decode_header_bytes(&self) -> Result<FrameHeader, FrameError> {
         let message_type = u32::from_le_bytes(self.header_bytes[0..4].try_into().unwrap());
@@ -280,12 +250,13 @@ impl FrameLayer {
     }
     pub fn reset(&mut self) {
         self.preamble_layer.reset();
-        self.cobs_layer.reset();
+        self.cobs_decoder.reset();
 
         self.header_bytes.iter_mut().for_each(|x| *x = 0);
         self.crc_bytes.iter_mut().for_each(|x| *x = 0);
         self.frame_header = None;
         self.decode_state = FrameState::Preamble;
+        self.crc = crc32fast::Hasher::new();
     }
     pub fn poll(&mut self, byte: u8) -> Result<FrameOutput, FrameError> {
         match self.decode_state {
@@ -300,12 +271,13 @@ impl FrameLayer {
                 Ok(FrameOutput::Skip)
             }
             FrameState::Packet(i) => {
-                match self.cobs_layer.poll(byte).map_err(FrameError::Cobs)? {
-                    CobsStateCRC::Skip => Ok(FrameOutput::Skip),
-                    CobsStateCRC::Byte(byte) => {
+                match self.cobs_decoder.poll(byte).map_err(FrameError::Cobs)? {
+                    CobsState::Skip => Ok(FrameOutput::Skip),
+                    CobsState::Byte(byte) => {
                         self.decode_state = FrameState::Packet(i + 1);
                         if i <= 7 {
                             self.header_bytes[i] = byte;
+                            self.crc.write_u8(byte);
                             if i == 7 {
                                 let frame_header = self.decode_header_bytes()?;
                                 self.frame_header = Some(frame_header);
@@ -318,6 +290,7 @@ impl FrameLayer {
                                 4 + 4 + self.frame_header.as_ref().unwrap().payload_len;
 
                             if i < packet_finishes_at_index {
+                                self.crc.write_u8(byte);
                                 Ok(FrameOutput::Payload(byte))
                             } else if i < packet_finishes_at_index + 4 {
                                 let offset = i - packet_finishes_at_index;
@@ -328,10 +301,12 @@ impl FrameLayer {
                             }
                         }
                     }
-                    CobsStateCRC::Finished(crc) => {
+                    CobsState::Finished => {
                         if i <= 7 {
                             return Err(FrameError::HeaderCutoff(self.header_bytes, i));
                         }
+                        let crc =
+                            core::mem::replace(&mut self.crc, crc32fast::Hasher::new()).finalize();
                         let frame_header = self.frame_header.as_ref().unwrap();
                         // TYPE + PAYLOAD_LEN + [payload] + CRC32
                         let expected_crc_begin = 4 + 4 + frame_header.payload_len;

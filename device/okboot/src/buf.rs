@@ -170,10 +170,10 @@ pub struct FrameSink<'tb, 'be> {
     transmission_buffer: TransmissionBuffer<'tb>,
     slice_buffered_encoder: SliceBufferedEncoder<'be>,
 }
-impl FrameSink {
+impl<'tb, 'be> FrameSink<'tb, 'be> {
     pub fn new(
-        transmission_buffer: TransmissionBuffer,
-        slice_buffered_encoder: SliceBufferedEncoder,
+        transmission_buffer: TransmissionBuffer<'tb>,
+        slice_buffered_encoder: SliceBufferedEncoder<'be>,
     ) -> Self {
         Self {
             transmission_buffer,

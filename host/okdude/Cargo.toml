@@ -5,3 +5,15 @@ edition = "2021"
 
 [dependencies]
 okboot-common = { path = "../../common/okboot-common", features = ["std", "compress-simd", "alloc"] }
+
+tracing = { version = "0.1.41" }
+tracing-subscriber = { version = "0.3.19" }
+color-eyre = "0.6.3"
+eyre = "0.6.12"
+clap = { version = "4.5.23", features = ["derive"] }
+console = { version = "0.15.10" }
+dialoguer = { version = "0.11.0" }
+indicatif = { version = "0.17.9" }
+nix = { version = "0.29.0", features = ["ioctl", "poll"] }
+libc = { version = "0.2.169", features = [] }
+musli = { version = "0.0.126", features = ["std", "wire"] }

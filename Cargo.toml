@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "common/okboot-common", "device/ok-registers",
-    "device/okboot", "host/okdude",
+    "common/okboot-common",
+    "device/ok-registers",
+    "device/okboot",
+    "host/okdude",
 ]

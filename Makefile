@@ -7,17 +7,17 @@ SHELL := /bin/bash
 export okns-prefix
 
 # PARAMETERS
-#  	p-artefact		name of generated library
-#	p-asm-files		names of assembly files in $PKG/extern
-# 	p-asm-root
-#	p-package		name of cargo package
-#	p-linker-script
-#	p-cargo-profile
+#  	build-artefact		name of generated library
+#	build-asm-files		names of assembly files in $PKG/extern
+# 	build-asm-root
+#	build-package		name of cargo package
+#	build-linker-script
+#	build-cargo-profile
 
 build := env "$${params[@]}" $(MAKE) -f $(okns-prefix)/infra/common.mk
 
 .PHONY: okboot
 okboot:
-	params+=("p-artefact=okboot"); \
-	params+=("p-asm-files=boot.S stub.S"); \
+	params+=("build-artefact=okboot"); \
+	params+=("build-asm-files=boot.S stub.S"); \
 	$(build)

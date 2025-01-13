@@ -1,12 +1,17 @@
 #![allow(internal_features)]
 #![feature(core_intrinsics)]
 #![cfg_attr(not(feature = "std"), no_std)]
-//! Common structures shared by the `okboot` and `okup` crates.
+//! Common structures shared by the `okboot` and `okdude` crates.
+#[cfg(test)]
+extern crate std;
 
 use musli::{Decode, Encode};
 
 /// The baud rate at which the protocol is run.
 pub const BAUD_RATE: usize = 1_500_000;
+
+/// The COBS xor factor.
+pub const COBS_XOR: u8 = 0x55;
 
 /// Message preamble, shortened from Ethernet.
 pub const PREAMBLE_BYTES: [u8; 4] = [0x55, 0x55, 0x55, 0x5e];
@@ -18,8 +23,12 @@ pub mod frame;
 /// Message structure sent from the host.
 pub mod host;
 
+pub trait EncodeMessageType {
+    const TYPE: MessageType;
+}
+
 /// Message type enumeration.
-#[derive(Debug, Encode, Decode, Clone, Copy)]
+#[derive(Debug, Encode, Decode, Clone, Copy, Eq, PartialEq)]
 #[repr(u32)]
 pub enum MessageType {
     /// Corresponds to [`PrintString`](device::PrintString).
@@ -47,6 +56,11 @@ pub enum MessageType {
     /// Corresponds to [`BootingAck`](host::BootingAck)
     BootingAck = 502,
 }
+impl From<MessageType> for u32 {
+    fn from(val: MessageType) -> u32 {
+        val as u32
+    }
+}
 impl TryFrom<u32> for MessageType {
     type Error = ();
 
@@ -66,5 +80,26 @@ impl TryFrom<u32> for MessageType {
             502 => Self::BootingAck,
             _ => return Err(()),
         })
+    }
+}
+
+pub const INITIAL_BAUD_RATE: u32 = 115200;
+
+pub mod su_boot {
+    #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+    #[repr(u32)]
+    pub enum Command {
+        BootStart = 0xFFFF0000,
+
+        GetProgInfo = 0x11112222, // pi sends
+        PutProgInfo = 0x33334444, // unix sends
+
+        GetCode = 0x55556666, // pi sends
+        PutCode = 0x77778888, // unix sends
+
+        BootSuccess = 0x9999AAAA, // pi sends on success
+        BootError = 0xBBBBCCCC,   // pi sends on failure.
+
+        PrintString = 0xDDDDEEEE, // pi sends to print a string.
     }
 }

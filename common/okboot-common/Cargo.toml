@@ -9,10 +9,14 @@ std = ["alloc", "musli/std", "miniz_oxide/std"]
 compress-simd = ["miniz_oxide/simd"]
 default = []
 
-[dependencies]
-musli = { version = "0.0.122", default-features = false, features = ["wire"] }
+[dev-dependencies]
+rand = "0.8.5"
 
-miniz_oxide = { version = "0.7.4", default-features = false }
+[dependencies]
+musli = { version = "0.0.126", default-features = false, features = ["wire"] }
+bytemuck = { version = "1.20.0", features = ["must_cast"] }
+
+miniz_oxide = { version = "0.8.2", default-features = false }
 crc32fast = { version = "1.4.2", default-features = false, features = ["nightly"] }
 
 thiserror = { version = "1.0", package = "thiserror-core", default-features = false }
