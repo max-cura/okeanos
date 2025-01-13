@@ -191,25 +191,29 @@ pub enum FrameError {
     #[error("COBS frame longer than expected. Frame header:{0:?}, found byte: {1:02x}")]
     Overrun(FrameHeader, u8),
     #[error("Header cut off at position {1} after receiving: {0:?}")]
-    HeaderCutoff([u8; 8], usize),
+    HeaderCutoff([u8; 4], usize),
     #[error("Payload cut off at position {1} with frame header: {0:?}")]
     PayloadCutoff(FrameHeader, usize),
     #[error("CRC32 cut off at position {1} after receiving: {0:?}")]
     CrcCutoff([u8; 4], usize),
+    #[error("Length byte at offset {0}: 0x{1:02x} should have highest two bits set")]
+    LengthEncoding(usize, u8),
 }
 #[derive(Debug, Copy, Clone)]
 enum FrameState {
     Preamble,
-    Packet(usize),
+    Length(usize),
+    PacketHeader(usize, usize),
+    PacketBody(usize, FrameHeader),
 }
 #[derive(Debug)]
 pub struct FrameLayer {
     preamble_layer: PreambleLayer,
     cobs_decoder: CobsDecoder,
 
-    header_bytes: [u8; 8],
+    length_bytes: [u8; 4],
+    header_bytes: [u8; 4],
     crc_bytes: [u8; 4],
-    frame_header: Option<FrameHeader>,
     decode_state: FrameState,
     crc: crc32fast::Hasher,
 }
@@ -226,23 +230,21 @@ impl FrameLayer {
             preamble_layer: PreambleLayer::new(),
             cobs_decoder: CobsDecoder::new(cobs_xor),
 
-            header_bytes: [0; 8],
+            length_bytes: [0; 4],
+            header_bytes: [0; 4],
             crc_bytes: [0; 4],
-            frame_header: None,
             decode_state: FrameState::Preamble,
             crc: crc32fast::Hasher::new(),
         }
     }
     pub fn skip_preamble(&mut self) {
-        self.decode_state = FrameState::Packet(0);
+        self.decode_state = FrameState::Length(0);
     }
-    fn decode_header_bytes(&self) -> Result<FrameHeader, FrameError> {
+    fn decode_header_bytes(&self, payload_len: usize) -> Result<FrameHeader, FrameError> {
         let message_type = u32::from_le_bytes(self.header_bytes[0..4].try_into().unwrap());
-        let payload_len = u32::from_le_bytes(self.header_bytes[4..8].try_into().unwrap());
         let message_type = MessageType::try_from(message_type)
             .map_err(|_| FrameError::InvalidType(message_type))?;
         const _: () = assert!(size_of::<u32>() <= size_of::<usize>());
-        let payload_len = payload_len as usize;
         Ok(FrameHeader {
             message_type,
             payload_len,
@@ -252,9 +254,9 @@ impl FrameLayer {
         self.preamble_layer.reset();
         self.cobs_decoder.reset();
 
-        self.header_bytes.iter_mut().for_each(|x| *x = 0);
-        self.crc_bytes.iter_mut().for_each(|x| *x = 0);
-        self.frame_header = None;
+        self.length_bytes.fill(0);
+        self.header_bytes.fill(0);
+        self.crc_bytes.fill(0);
         self.decode_state = FrameState::Preamble;
         self.crc = crc32fast::Hasher::new();
     }
@@ -266,53 +268,72 @@ impl FrameLayer {
                     .poll(byte)
                     .map_err(FrameError::Preamble)?;
                 if finished {
-                    self.decode_state = FrameState::Packet(0);
+                    self.decode_state = FrameState::Length(0);
                 }
                 Ok(FrameOutput::Skip)
             }
-            FrameState::Packet(i) => {
+            FrameState::Length(i) => {
+                if (byte & 0xc0) != 0xc0 {
+                    Err(FrameError::LengthEncoding(i, byte))
+                } else {
+                    self.length_bytes[i] = byte;
+                    if i == 3 {
+                        let sextets = self.length_bytes.map(|x| x & !0xc0);
+                        let payload_len = sextets[0] as usize
+                            | ((sextets[1] as usize) << 6)
+                            | ((sextets[2] as usize) << 12)
+                            | ((sextets[3] as usize) << 18);
+                        self.decode_state = FrameState::PacketHeader(0, payload_len);
+                    } else {
+                        self.decode_state = FrameState::Length(i + 1);
+                    }
+                    Ok(FrameOutput::Skip)
+                }
+            }
+            FrameState::PacketHeader(i, payload_len) => {
                 match self.cobs_decoder.poll(byte).map_err(FrameError::Cobs)? {
                     CobsState::Skip => Ok(FrameOutput::Skip),
                     CobsState::Byte(byte) => {
-                        self.decode_state = FrameState::Packet(i + 1);
-                        if i <= 7 {
-                            self.header_bytes[i] = byte;
-                            self.crc.write_u8(byte);
-                            if i == 7 {
-                                let frame_header = self.decode_header_bytes()?;
-                                self.frame_header = Some(frame_header);
-                                Ok(FrameOutput::Header(frame_header))
-                            } else {
-                                Ok(FrameOutput::Skip)
-                            }
+                        self.decode_state = FrameState::PacketHeader(i + 1, payload_len);
+                        self.header_bytes[i] = byte;
+                        self.crc.write_u8(byte);
+                        if i == 3 {
+                            let frame_header = self.decode_header_bytes(payload_len)?;
+                            self.decode_state = FrameState::PacketBody(i + 1, frame_header);
+                            Ok(FrameOutput::Header(frame_header))
                         } else {
-                            let packet_finishes_at_index =
-                                4 + 4 + self.frame_header.as_ref().unwrap().payload_len;
+                            Ok(FrameOutput::Skip)
+                        }
+                    }
+                    CobsState::Finished => Err(FrameError::HeaderCutoff(self.header_bytes, i)),
+                }
+            }
+            FrameState::PacketBody(i, frame_header) => {
+                match self.cobs_decoder.poll(byte).map_err(FrameError::Cobs)? {
+                    CobsState::Skip => Ok(FrameOutput::Skip),
+                    CobsState::Byte(byte) => {
+                        self.decode_state = FrameState::PacketBody(i + 1, frame_header);
+                        let packet_finishes_at_index = 4 + frame_header.payload_len;
 
-                            if i < packet_finishes_at_index {
-                                self.crc.write_u8(byte);
-                                Ok(FrameOutput::Payload(byte))
-                            } else if i < packet_finishes_at_index + 4 {
-                                let offset = i - packet_finishes_at_index;
-                                self.crc_bytes[offset] = byte;
-                                Ok(FrameOutput::Skip)
-                            } else {
-                                Err(FrameError::Overrun(self.frame_header.take().unwrap(), byte))
-                            }
+                        if i < packet_finishes_at_index {
+                            self.crc.write_u8(byte);
+                            Ok(FrameOutput::Payload(byte))
+                        } else if i < packet_finishes_at_index + 4 {
+                            let offset = i - packet_finishes_at_index;
+                            self.crc_bytes[offset] = byte;
+                            Ok(FrameOutput::Skip)
+                        } else {
+                            Err(FrameError::Overrun(frame_header, byte))
                         }
                     }
                     CobsState::Finished => {
-                        if i <= 7 {
-                            return Err(FrameError::HeaderCutoff(self.header_bytes, i));
-                        }
                         let crc =
                             core::mem::replace(&mut self.crc, crc32fast::Hasher::new()).finalize();
-                        let frame_header = self.frame_header.as_ref().unwrap();
-                        // TYPE + PAYLOAD_LEN + [payload] + CRC32
-                        let expected_crc_begin = 4 + 4 + frame_header.payload_len;
-                        let expected_cobs_payload_len = 4 + 4 + frame_header.payload_len + 4;
+                        // TYPE + [payload] + CRC32
+                        let expected_crc_begin = 4 + frame_header.payload_len;
+                        let expected_cobs_payload_len = 4 + frame_header.payload_len + 4;
                         if i < expected_crc_begin {
-                            Err(FrameError::PayloadCutoff(*frame_header, i))
+                            Err(FrameError::PayloadCutoff(frame_header, i))
                         } else if i < expected_cobs_payload_len {
                             Err(FrameError::CrcCutoff(self.crc_bytes, i))
                         } else {

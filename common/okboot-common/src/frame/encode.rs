@@ -2,6 +2,21 @@ use crate::frame::COBS_SENTINEL;
 use core::borrow::BorrowMut;
 use core::fmt::Debug;
 
+pub fn encode_length(length: usize) -> Option<[u8; 4]> {
+    if (length & !0xff_ffff) != 0 {
+        None
+    } else {
+        let splits = [
+            (length & 0x3f) as u8,
+            ((length & 0xfc0) >> 6) as u8,
+            ((length & 0x3_f000) >> 12) as u8,
+            ((length & 0xfc_0000) >> 18) as u8,
+        ]
+        .map(|x| x | 0xc0);
+        Some(splits)
+    }
+}
+
 #[derive(Debug)]
 pub struct BufferedEncoder<T: BorrowMut<[u8]> + Debug> {
     buffer: T,

@@ -37,6 +37,7 @@ pub fn upload(args: Args) -> Result<()> {
             break;
         } else {
             tracing::warn!("failed attempt {attempt}/{PROMOTION_TRIES} to promote protocol");
+            std::thread::sleep(Duration::from_millis(700));
         }
     }
     match mode {
@@ -221,17 +222,15 @@ fn send<M: EncodeMessageType + musli::Encode<Binary> + Debug>(
     // build frame that we're COBS-encoding
     let mut message_bytes = vec![];
     message_bytes.extend_from_slice(&u32::from(message_type).to_le_bytes());
-    message_bytes.extend_from_slice(
-        &u32::try_from(payload_len)
-            .expect("message payload is >=4GiB")
-            .to_le_bytes(),
-    );
     message_bytes.extend_from_slice(&serialized_message);
 
     // build the final message we're sending over the wire
     let mut wire_bytes = vec![];
     // first, the preamble
     wire_bytes.extend_from_slice(&okboot_common::PREAMBLE_BYTES);
+    wire_bytes.extend_from_slice(
+        &okboot_common::frame::encode_length(payload_len).expect("message payload is >= 16MiB"),
+    );
     // COBS-encode the `message_bytes`
     let mut buf = [0; 255];
     let mut buf_enc = BufferedEncoder::with_buffer_xor(&mut buf[..], okboot_common::COBS_XOR);

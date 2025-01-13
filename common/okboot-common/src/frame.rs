@@ -1,9 +1,9 @@
 //! Message frame format:
 //! ```txt
-//! | preamble | COBS FRAME                                      | TERMINATING      |
-//! | preamble | CONTENT CRC IS CALCULATED ON   | crc            | DELIMITER        |
-//! | preamble | type | length | payload        | crc            | 0                |
-//!   +0:4       +4:4   +8:4     +12:(length)     +(12+length):4   +(12+length+4):1
+//! | preamble | length | COBS FRAME                                      | TERMINATING      |
+//! | preamble | length | CONTENT CRC IS CALCULATED ON   | crc            | DELIMITER        |
+//! | preamble | length | type | payload                 | crc            | 0                |
+//!   +0:4     | +4:4   | +8:4   +12:(length)     +(12+length):4   +(12+length+4):1
 //! ```
 
 /// Used internally, by [`decode`] and [`encode`].
@@ -16,13 +16,13 @@ pub use decode::{CobsError, FrameError, FrameHeader, FrameLayer, FrameOutput, Pr
 
 /// Provides functionality for writing out a stream of COBS-stuffed data.
 mod encode;
-pub use encode::{BufferedEncoder, EncodeState, FrameEncoder, SliceBufferedEncoder};
+pub use encode::{encode_length, BufferedEncoder, EncodeState, FrameEncoder, SliceBufferedEncoder};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::frame::decode::{CobsDecoder, CobsState};
-    use crate::MessageType::AllowedVersions;
+    use crate::frame::encode::encode_length;
     use crate::{MessageType, COBS_XOR, PREAMBLE_BYTES};
     use rand::RngCore;
     use std::prelude::rust_2021::*;
@@ -128,14 +128,16 @@ mod tests {
         let mut bytes = vec![];
         {
             bytes.extend_from_slice(&PREAMBLE_BYTES);
+            let l = encode_length(payload.len()).expect("failed to encode payload length");
+            std::eprintln!("len: {l:?}");
+            bytes.extend_from_slice(&l);
             let mut input = vec![];
             input.extend_from_slice(&u32::to_le_bytes(MessageType::PrintString as u32));
-            input.extend_from_slice(&u32::to_le_bytes(payload.len() as u32));
             input.extend_from_slice(&payload);
             let crc = crc32fast::hash(&input);
             input.extend_from_slice(&u32::to_le_bytes(crc));
             let mut buf = [0; 255];
-            let mut frame = FrameEncoder::with_buffer_xor(&mut buf, 0)
+            let mut frame = FrameEncoder::with_buffer_xor(&mut buf, COBS_XOR)
                 .expect("should be able to create frame encoder");
             for &i in input.iter() {
                 if let EncodeState::Buf(b) = frame.write_u8(i) {
@@ -143,17 +145,15 @@ mod tests {
                 }
             }
             bytes.extend_from_slice(frame.finish());
+            // 3 in the preamble, and 1 at the end
+            assert_eq!(bytes.iter().filter(|x| **x == COBS_XOR).count(), 4);
         }
 
-        eprintln!("{bytes:?}");
-
-        let mut dec = FrameLayer::new(0);
+        let mut dec = FrameLayer::new(COBS_XOR);
         let mut hdr = None;
         let mut j = 0;
         let mut did_finish = false;
-        use std::eprintln;
         for &i in bytes.iter() {
-            eprintln!("feeding byte {i}");
             match dec.poll(i).expect("error during frame decoding") {
                 FrameOutput::Skip => {}
                 FrameOutput::Header(h) => {
