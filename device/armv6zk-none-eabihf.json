@@ -6,7 +6,6 @@
     "std": null,
     "tier": null
   },
-  "is-builtin": false,
   "abi": "eabihf",
   "arch": "arm",
   "target-pointer-width": "32",
@@ -17,7 +16,13 @@
   "linker-flavor": "gcc",
   "linker": "arm-none-eabi-gcc",
   "pre-link-args": {
-    "gcc": [ "-Wall", "-nostdlib", "-nostartfiles", "-ffreestanding", "-march=armv6" ]
+    "gcc": [
+      "-Wall",
+      "-nostdlib",
+      "-nostartfiles",
+      "-ffreestanding",
+      "-march=armv6"
+    ]
   },
   "executables": true,
   "relocation-model": "static",
@@ -30,6 +35,8 @@
   "emit-debug-gdb-scripts": false,
   "asm-args": [
     "-march=armv6z",
-    "-mlittle-endian"
-  ]
+    "-mlittle-endian",
+    "-mfloat-abi=hard"
+  ],
+  "llvm-floatabi": "hard"
 }
