@@ -20,6 +20,11 @@
 .extern EXTERN_KERNEL_FN
 .extern EXTERN_REBOOT_FN
 
+#define EXTERN_BSS_START __symbol_bss_start__
+#define EXTERN_BSS_END __symbol_bss_end__
+.extern EXTERN_BSS_START
+.extern EXTERN_BSS_END
+
 #define SUPER_MODE 0b10011
 #define MODE_MASK 0b11111
 
@@ -39,6 +44,19 @@ _start:
     orr r0, r0, #(1 << 7)
     msr cpsr, r0
     _prefetch_flush(r1)
+
+    @ zero bss
+    mov r0, #0
+    ldr r1, =EXTERN_BSS_START
+    ldr r2, =EXTERN_BSS_END
+
+_start.bss.L0:
+    cmp r1, r2
+    bge _start.bss.L1
+    strb r0, [r1]
+    add r1, r1, #1
+    b _start.bss.L0
+_start.bss.L1:
 
     ldr sp, STACK_HIGH
     mov fp, #0
