@@ -1,14 +1,13 @@
 use crate::tty::Tty;
 use crate::Args;
 use eyre::{bail, ensure, eyre, Context, Result};
-use musli::mode::Binary;
-use musli::Encode;
 use okboot_common::device::AllowedVersions;
 use okboot_common::frame::{
     BufferedEncoder, EncodeState, FrameEncoder, FrameError, FrameLayer, FrameOutput,
 };
 use okboot_common::host::UseVersion;
 use okboot_common::{EncodeMessageType, MessageType, COBS_XOR};
+use serde::Serialize;
 use std::fmt::Debug;
 use std::io::{ErrorKind, Read, Write};
 use std::process::exit;
@@ -77,7 +76,7 @@ fn try_promotion_handshake(args: &Args, tty: &mut Tty) -> Option<UseVersion> {
         );
         return None;
     }
-    let allowed_versions: AllowedVersions = match musli::wire::decode(&*msg.1) {
+    let allowed_versions: AllowedVersions = match postcard::from_bytes(&*msg.1) {
         Ok(v) => v,
         Err(e) => {
             tracing::error!("[host]: failed to deserialize AllowedVersions message payload: {e}");
@@ -208,14 +207,10 @@ fn recv_with_print_string(
     }
 }
 
-fn send<M: EncodeMessageType + musli::Encode<Binary> + Debug>(
-    message: &M,
-    tty: &mut Tty,
-) -> Result<()> {
+fn send<M: EncodeMessageType + Serialize + Debug>(message: &M, tty: &mut Tty) -> Result<()> {
     // serialize the message
-    let mut serialized_message = Vec::new();
-    musli::wire::encode(&mut serialized_message, message)
-        .wrap_err(eyre!("failed to encode message <{message:?}>"))?;
+    let serialized_message =
+        postcard::to_stdvec(message).wrap_err(eyre!("failed to encode message <{message:?}>"))?;
     // derive message type and payload length
     let message_type = <M as EncodeMessageType>::TYPE;
     let payload_len = serialized_message.len();

@@ -1,9 +1,9 @@
 use crate::{EncodeMessageType, MessageType};
-use musli::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 /// Send a string to the host to be printed out. Messages will be line-buffered in a timeout-limited
 /// manner.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct PrintString<'a> {
     pub string: &'a str,
@@ -11,13 +11,13 @@ pub struct PrintString<'a> {
 
 /// Indicates the protocol versions that the device can speak.
 // This requires a bit of song-and-dance because of a limitation of musli.
-// Specifically, we can't [`Decode`] &[u32].
+// Specifically, we can't [`Deserialize`] &[u32].
 // As far as I can tell, this would require some alignment guarantees that it doesn't want to make.
 // We *could* try to make those guarantees externally, and then use bytemuck + byteorder internally
 // But I think this is more robust.
 // `versions` only needs to be read on the host-side, and there, we only need to operate on the
 // iterator from this.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct AllowedVersions<'a> {
     versions: &'a [u8],
@@ -62,7 +62,7 @@ impl EncodeMessageType for AllowedVersions<'_> {
 }
 
 /// Signals that the host should send program [`Metadata`](crate::host::Metadata).
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct MetadataReq {}
 impl EncodeMessageType for MetadataReq {
@@ -71,7 +71,7 @@ impl EncodeMessageType for MetadataReq {
 
 /// Retransmission (for confirmation) of metadata information, and the chunk size that the host
 /// should use for transmission.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct MetadataAck {
     pub chunk_size: u32,
@@ -82,7 +82,7 @@ impl EncodeMessageType for MetadataAck {
 }
 
 /// Request a specific chunk from the host.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct ChunkReq {
     pub which: u32,
@@ -92,7 +92,7 @@ impl EncodeMessageType for ChunkReq {
 }
 
 /// Indicate that the device has finished downloading.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Booting {}
 impl EncodeMessageType for Booting {

@@ -1,9 +1,51 @@
-use okboot_common::frame::{FrameEncoder, SliceBufferedEncoder};
-use okboot_common::PREAMBLE_BYTES;
+use core::fmt;
+use okboot_common::frame::{EncodeState, FrameEncoder, SliceBufferedEncoder};
+use okboot_common::{EncodeMessageType, PREAMBLE_BYTES};
+use serde::Serialize;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ReceiveError {
+    #[error("receive buffer overflow")]
+    BufferOverflow,
+}
+/// Buffer (not circular).
+#[derive(Debug)]
+pub struct ReceiveBuffer<'a> {
+    underlying_storage: &'a mut [u8],
+    cursor: usize,
+}
+
+impl<'a> ReceiveBuffer<'a> {
+    pub fn new(underlying_storage: &'a mut [u8]) -> Self {
+        Self {
+            underlying_storage,
+            cursor: 0,
+        }
+    }
+    pub fn clear(&mut self) {
+        self.cursor = 0;
+        self.underlying_storage.fill(0);
+    }
+    pub fn push_u8(&mut self, b: u8) -> Result<(), ReceiveError> {
+        if self.cursor >= self.underlying_storage.len() {
+            return Err(ReceiveError::BufferOverflow);
+        } else {
+            self.underlying_storage[self.cursor] = b;
+            self.cursor += 1;
+            Ok(())
+        }
+    }
+    pub fn finalize(&mut self) -> &mut [u8] {
+        let end = self.cursor;
+        self.cursor = 0;
+        &mut self.underlying_storage[..end]
+    }
+}
 
 /// Circular buffer with FIFO semantics. Overlong writes will be truncated.
 #[derive(Debug)]
-pub struct TransmissionBuffer<'a> {
+pub struct TransmitBuffer<'a> {
     underlying_storage: &'a mut [u8],
     circle_begin: usize,
     circle_end: usize,
@@ -11,7 +53,7 @@ pub struct TransmissionBuffer<'a> {
     circle_len: usize,
 }
 
-impl<'a> TransmissionBuffer<'a> {
+impl<'a> TransmitBuffer<'a> {
     pub fn new(underlying_storage: &'a mut [u8]) -> Self {
         Self {
             underlying_storage,
@@ -125,22 +167,22 @@ impl<'a> TransmissionBuffer<'a> {
 // Support for checkpointing, to allow rollback of buffer edits if a packet would fully overflow
 
 #[derive(Debug, Copy, Clone)]
-struct TransmissionBufferCheckpoint {
+struct TransmitBufferCheckpoint {
     circle_begin: usize,
     circle_end: usize,
     circle_len: usize,
 }
 
-impl<'a> TransmissionBuffer<'a> {
-    fn checkpoint(&self) -> TransmissionBufferCheckpoint {
-        TransmissionBufferCheckpoint {
+impl<'a> TransmitBuffer<'a> {
+    fn checkpoint(&self) -> TransmitBufferCheckpoint {
+        TransmitBufferCheckpoint {
             circle_begin: self.circle_begin,
             circle_end: self.circle_end,
             circle_len: self.circle_len,
         }
     }
 
-    fn bytes_since_checkpoint(&self, cp: TransmissionBufferCheckpoint) -> usize {
+    fn bytes_since_checkpoint(&self, cp: TransmitBufferCheckpoint) -> usize {
         let cp_end = cp.circle_end;
         if self.circle_end < cp_end {
             (self.underlying_storage.len() - cp_end) + self.circle_end
@@ -149,8 +191,8 @@ impl<'a> TransmissionBuffer<'a> {
         }
     }
 
-    fn restore(&mut self, from: TransmissionBufferCheckpoint) {
-        let TransmissionBufferCheckpoint {
+    fn restore(&mut self, from: TransmitBufferCheckpoint) {
+        let TransmitBufferCheckpoint {
             circle_begin,
             circle_end,
             circle_len,
@@ -166,49 +208,267 @@ impl<'a> TransmissionBuffer<'a> {
     }
 }
 
-pub struct FrameSink<'tb, 'be> {
-    transmission_buffer: TransmissionBuffer<'tb>,
+pub struct FrameSink<'tb, 'be, 'px> {
+    transmit_buffer: TransmitBuffer<'tb>,
     slice_buffered_encoder: SliceBufferedEncoder<'be>,
+    postcard_buffer: Option<&'px mut [u8]>,
 }
-impl<'tb, 'be> FrameSink<'tb, 'be> {
+impl<'tb, 'be, 'px> FrameSink<'tb, 'be, 'px> {
     pub fn new(
-        transmission_buffer: TransmissionBuffer<'tb>,
+        transmit_buffer: TransmitBuffer<'tb>,
         slice_buffered_encoder: SliceBufferedEncoder<'be>,
+        postcard_buffer: &'px mut [u8],
     ) -> Self {
         Self {
-            transmission_buffer,
+            transmit_buffer,
             slice_buffered_encoder,
+            postcard_buffer: Some(postcard_buffer),
         }
     }
-}
 
-pub trait FrameWrite {
-    fn write_frame(&mut self) -> FrameWriter;
-}
-impl<'tb, 'be> FrameWrite for FrameSink<'tb, 'be> {
-    fn write_frame<'fs>(&mut self) -> FrameWriter<'fs, 'tb, 'be> {
+    fn write_frame(&mut self) -> FrameWriter<'_, 'tb, '_> {
         FrameWriter::new(
-            &mut self.transmission_buffer,
+            &mut self.transmit_buffer,
             self.slice_buffered_encoder.frame().unwrap(),
         )
     }
 }
 
 pub struct FrameWriter<'tbr, 'tb, 'fe> {
-    transmission_buffer: &'tbr mut TransmissionBuffer<'tb>,
+    transmit_buffer: &'tbr mut TransmitBuffer<'tb>,
     frame_encoder: FrameEncoder<'fe>,
 
-    checkpoint: TransmissionBufferCheckpoint,
+    checkpoint: TransmitBufferCheckpoint,
     len_offset: usize,
     ok: bool,
     hasher: crc32fast::Hasher,
 }
 impl<'tbr, 'tb, 'fe> FrameWriter<'tbr, 'tb, 'fe> {
     pub fn new(
-        transmission_buffer: &'tbr mut TransmissionBuffer<'tb>,
+        transmit_buffer: &'tbr mut TransmitBuffer<'tb>,
         frame_encoder: FrameEncoder<'fe>,
     ) -> Self {
-        let checkpoint = transmission_buffer.checkpoint();
-        let ok = transmission_buffer.extend_from_slice(&PREAMBLE_BYTES);
+        let checkpoint = transmit_buffer.checkpoint();
+        let ok = transmit_buffer.extend_from_slice(&PREAMBLE_BYTES);
+        let (len_offset, ok) = if ok {
+            let lo = transmit_buffer.reserve(4);
+            (lo.unwrap_or(0), lo.is_some())
+        } else {
+            (0, false)
+        };
+        Self {
+            transmit_buffer,
+            frame_encoder,
+            checkpoint,
+            len_offset,
+            ok,
+            hasher: crc32fast::Hasher::new(),
+        }
+    }
+    pub fn add_bytes(&mut self, bytes: &[u8]) {
+        self.hasher.update(bytes);
+        self._add_bytes_unhashed(bytes);
+    }
+    fn _add_bytes_unhashed(&mut self, bytes: &[u8]) {
+        if !self.ok {
+            return;
+        }
+        for byte in bytes.iter().copied() {
+            if !self.ok {
+                return;
+            }
+            match self.frame_encoder.write_u8(byte) {
+                EncodeState::Buf(buf) => {
+                    if self.ok {
+                        self.ok = self.transmit_buffer.extend_from_slice(buf);
+                    }
+                }
+                EncodeState::Pass => {}
+            }
+        }
+    }
+    pub fn write32(&mut self, x: u32) {
+        self.add_bytes(&x.to_le_bytes());
+    }
+    pub fn finalize(mut self) -> bool {
+        if self.ok {
+            let hasher = core::mem::replace(&mut self.hasher, crc32fast::Hasher::new());
+            // crc32 should be cobs-encoded, so run it through add_bytes
+            self._add_bytes_unhashed(&hasher.finalize().to_le_bytes());
+        }
+        if self.ok {
+            // finalize the packet, at last
+            let buf = self.frame_encoder.finish();
+            self.ok = self.transmit_buffer.extend_from_slice(buf);
+        }
+        if !self.ok {
+            self.transmit_buffer.restore(self.checkpoint);
+        } else {
+            if let Some(len_bytes) = okboot_common::frame::encode_length(
+                self.transmit_buffer.bytes_since_checkpoint(self.checkpoint) - 8,
+            ) {
+                self.transmit_buffer
+                    ._write_bytes_at_unchecked(self.len_offset, len_bytes);
+            } else {
+                self.ok = false;
+            }
+        }
+        self.ok
+    }
+    pub fn abort(self) {
+        self.transmit_buffer.restore(self.checkpoint);
+    }
+}
+
+impl<'tbr, 'tb, 'fe> core::fmt::Write for FrameWriter<'tbr, 'tb, 'fe> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.add_bytes(s.as_bytes());
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct WriteHelper<'a> {
+    pub data: &'a mut [u8],
+}
+impl<'a> fmt::Write for WriteHelper<'a> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let writable = core::cmp::min(self.data.len(), s.len());
+        self.data[..writable].copy_from_slice(&s.as_bytes()[..writable]);
+        let (taken, rem) = core::mem::take(self).data.split_at_mut(writable);
+        taken.copy_from_slice(&s.as_bytes()[..writable]);
+        *self = Self { data: rem };
+        // silently fail
+        Ok(())
+    }
+}
+
+#[macro_export]
+macro_rules! print_rpc {
+($fs:expr, $fmtbuf:expr, $($args:tt)*) => {
+    #[allow(unused_imports)]
+    use ::core::io::Write as _;
+    let _ = ::core::write!($crate::buf::WriteHelper { data: $fmtbuf }, $($args)*);
+    $crate::buf::FrameSink::send($fs, PrintString {
+        string: $fmtbuf,
+    });
+}
+}
+
+#[derive(Debug, Error)]
+pub enum SendError {
+    #[error("encoding error: {0}")]
+    Postcard(postcard::Error),
+    #[error("error constructing frame encoder")]
+    ConstructEncoder,
+}
+
+impl FrameSink<'_, '_, '_> {
+    pub fn send<T: EncodeMessageType + Serialize>(&mut self, msg: &T) -> Result<bool, SendError> {
+        let px_buf = Option::take(&mut self.postcard_buffer).unwrap();
+        let mut fw = FrameWriter::new(
+            &mut self.transmit_buffer,
+            self.slice_buffered_encoder
+                .frame()
+                .ok_or(SendError::ConstructEncoder)?,
+        );
+        fw.write32(<T as EncodeMessageType>::TYPE as u32);
+        let r = match postcard::to_slice(msg, px_buf) {
+            Ok(buf) => {
+                fw.add_bytes(buf);
+                Ok(fw.finalize())
+            }
+            Err(e) => {
+                fw.abort();
+                Err(SendError::Postcard(e))
+            }
+        };
+        self.postcard_buffer = Some(px_buf);
+        r
+    }
+}
+
+pub fn send<T: EncodeMessageType + Serialize>(
+    fs: &mut FrameSink,
+    msg: &T,
+) -> Result<bool, SendError> {
+    fs.send(msg)
+}
+
+pub mod legacy_compat {
+    use super::{FrameSink, TransmitBuffer, TransmitBufferCheckpoint};
+    use core::fmt;
+
+    pub trait LegacyPrintString<'tb> {
+        fn legacy_print_string(&mut self) -> Writer<'_, 'tb>;
+    }
+    impl<'tb, 'be, 'px> LegacyPrintString<'tb> for FrameSink<'tb, 'be, 'px> {
+        fn legacy_print_string(&mut self) -> Writer<'_, 'tb> {
+            let checkpoint = self.transmit_buffer.checkpoint();
+            let mut ok = self.transmit_buffer.extend_from_slice(&u32::to_le_bytes(
+                okboot_common::su_boot::Command::PrintString as u32,
+            ));
+            let len_offset = if ok {
+                if let Some(len_offset) = self.transmit_buffer.reserve(4) {
+                    len_offset
+                } else {
+                    ok = false;
+                    0
+                }
+            } else {
+                0
+            };
+            Writer {
+                transmit_buffer: &mut self.transmit_buffer,
+                checkpoint,
+                len_offset,
+                ok,
+            }
+        }
+    }
+
+    pub struct Writer<'tbr, 'tb> {
+        transmit_buffer: &'tbr mut TransmitBuffer<'tb>,
+        checkpoint: TransmitBufferCheckpoint,
+        len_offset: usize,
+        ok: bool,
+    }
+    impl<'a, 'b> Writer<'a, 'b> {
+        pub fn finalize(self) -> bool {
+            if !self.ok {
+                self.transmit_buffer.restore(self.checkpoint);
+            } else {
+                self.transmit_buffer._write_bytes_at_unchecked(
+                    self.len_offset,
+                    (self.transmit_buffer.bytes_since_checkpoint(self.checkpoint) as u32 - 8)
+                        .to_le_bytes(),
+                );
+            }
+            self.ok
+        }
+    }
+    impl<'a, 'b> fmt::Write for Writer<'a, 'b> {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            if self.ok {
+                self.ok = self.transmit_buffer.extend_from_slice(s.as_bytes());
+            }
+            Ok(())
+        }
+    }
+
+    #[macro_export]
+    macro_rules! legacy_print_string {
+    ($tx_buf:expr, $($args:tt)*) => {
+        // $w is expected to be transmit buffer
+        #[allow(unused_imports)]
+        use core::fmt::Write as _;
+        let txbuf : &mut $crate::buf:TransmissionBufferr = $tx_buf;
+        let mut writer = $crate::buf::legacy_compat::LegacyPrintString::legacy_print_string(txbuf);
+        let _ = core::write!(
+            writer,
+            $($args)*
+        );
+        writer.finalize();
+    }
     }
 }

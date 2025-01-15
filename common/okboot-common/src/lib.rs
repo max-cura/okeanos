@@ -5,7 +5,7 @@
 #[cfg(test)]
 extern crate std;
 
-use musli::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 /// The baud rate at which the protocol is run.
 pub const BAUD_RATE: usize = 1_500_000;
@@ -28,7 +28,7 @@ pub trait EncodeMessageType {
 }
 
 /// Message type enumeration.
-#[derive(Debug, Encode, Decode, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Eq, PartialEq)]
 #[repr(u32)]
 pub enum MessageType {
     /// Corresponds to [`PrintString`](device::PrintString).

@@ -1,9 +1,9 @@
 use crate::{EncodeMessageType, MessageType};
-use musli::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 /// Indicates to the device that a host has arrived and that it should broadcast an
 /// [`AllowedVersions`](crate::device::AllowedVersions).
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Probe {}
 impl EncodeMessageType for Probe {
@@ -11,7 +11,7 @@ impl EncodeMessageType for Probe {
 }
 
 /// Indicates which version of the protocol should be used.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct UseVersion {
     pub version: u32,
@@ -21,7 +21,7 @@ impl EncodeMessageType for UseVersion {
 }
 
 /// Metadata that the device needs to know about the program being downloaded.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Metadata {
     pub deflated_crc: u32,
@@ -35,7 +35,7 @@ impl EncodeMessageType for Metadata {
 
 /// Signals that the [`MetadataAck`](crate::device::MetadataAck) was received, and additionally
 /// indicates whether the `MetadataAck` was correct.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct MetadataAckAck {
     is_ok: bool,
@@ -45,7 +45,7 @@ impl EncodeMessageType for MetadataAckAck {
 }
 
 /// A chunk of program data that is being uploaded to the device.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Chunk<'a> {
     pub which: u32,
@@ -56,7 +56,7 @@ impl EncodeMessageType for Chunk<'_> {
 }
 
 /// Signals that the [`Booting`](crate::device::Booting) was received.
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct BootingAck {}
 impl EncodeMessageType for BootingAck {
