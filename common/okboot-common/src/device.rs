@@ -1,13 +1,12 @@
 use crate::{EncodeMessageType, MessageType};
 use serde::{Deserialize, Serialize};
-
-/// Send a string to the host to be printed out. Messages will be line-buffered in a timeout-limited
-/// manner.
-#[derive(Debug, Serialize, Deserialize)]
-#[repr(C)]
-pub struct PrintString<'a> {
-    pub string: &'a str,
-}
+// /// Send a string to the host to be printed out. Messages will be line-buffered in a timeout-limited
+// /// manner.
+// #[derive(Debug, Serialize, Deserialize)]
+// #[repr(C)]
+// pub struct PrintString<'a> {
+//     pub string: &'a str,
+// }
 
 /// Indicates the protocol versions that the device can speak.
 // This requires a bit of song-and-dance because of a limitation of musli.

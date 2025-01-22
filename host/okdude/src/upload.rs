@@ -1,12 +1,13 @@
 use crate::tty::Tty;
-use crate::Args;
+use crate::{echo, Args};
 use eyre::{bail, ensure, eyre, Context, Result};
 use okboot_common::device::AllowedVersions;
 use okboot_common::frame::{
     BufferedEncoder, EncodeState, FrameEncoder, FrameError, FrameLayer, FrameOutput,
 };
 use okboot_common::host::UseVersion;
-use okboot_common::{EncodeMessageType, MessageType, COBS_XOR};
+use okboot_common::{EncodeMessageType, MessageType, SupportedProtocol, COBS_XOR};
+use postcard::fixint::be::serialize;
 use serde::Serialize;
 use std::fmt::Debug;
 use std::io::{ErrorKind, Read, Write};
@@ -15,7 +16,7 @@ use std::time::{Duration, Instant};
 use tracing::instrument;
 
 const TTY_TIMEOUT: Duration = Duration::from_millis(100);
-const PROMOTION_TRIES: usize = 5;
+const PROMOTION_TRIES: usize = 1;
 
 pub fn upload(args: Args) -> Result<()> {
     let mut tty = Tty::new(&args.device, okboot_common::INITIAL_BAUD_RATE)?;
@@ -42,13 +43,17 @@ pub fn upload(args: Args) -> Result<()> {
     match mode {
         Mode::Legacy => {
             tracing::warn!("attempting upload using SU-BOOT protocol");
+
+            crate::suboot::run(&args, &mut tty)
         }
         Mode::Okdude(version) => {
             tracing::debug!("using okdude protocol version {:08x}", version.version);
-        }
-    }
 
-    Ok(())
+            crate::v2::upload(&args, &mut tty)
+        }
+    }?;
+
+    echo::echo(&args, &mut tty)
 }
 
 fn try_promotion_handshake(args: &Args, tty: &mut Tty) -> Option<UseVersion> {
@@ -65,7 +70,7 @@ fn try_promotion_handshake(args: &Args, tty: &mut Tty) -> Option<UseVersion> {
             return None;
         }
         Err(e) => {
-            tracing::error!("[host]: failed to receive message: {e}");
+            tracing::error!("[host]: failed to receive message: {e:?}");
             return None;
         }
     };
@@ -100,6 +105,16 @@ fn try_promotion_handshake(args: &Args, tty: &mut Tty) -> Option<UseVersion> {
         tracing::error!("[host]: failed to send UseVersion: {e}");
         return None;
     }
+
+    let new_baud_rate = SupportedProtocol::try_from(config.version)
+        .unwrap()
+        .baud_rate();
+
+    if let Err(e) = tty.set_baud_rate(new_baud_rate) {
+        tracing::error!("[host]: failed to set baud rate: {e}");
+        return None;
+    }
+
     Some(config)
 }
 
@@ -110,6 +125,7 @@ fn recv_with_print_string(
     timeout: Duration,
 ) -> Result<Option<(MessageType, Vec<u8>)>> {
     // can't use the normal decoder because we might get `PRINT_STRING`s
+    // TODO(mc): normal decoder now handles PRINT_STRING. We can fix this.
     let start = Instant::now();
     let mut state = 0;
     loop {
@@ -133,7 +149,7 @@ fn recv_with_print_string(
             (0, 0x55) => 1,
             (1, 0x55) => 2,
             (2, 0x55) => 3,
-            (3, 0x53) => break,
+            (3, 0x5e) => break,
             (3, 0x55) => 3,
             (0, 0xee) => 5,
             (5, 0xee) => 6,
@@ -176,7 +192,7 @@ fn recv_with_print_string(
             }
             e @ Err(_) => e?,
         };
-        let out = match frame_decoder.poll(byte) {
+        let out = match frame_decoder.feed(byte) {
             Ok(s) => s,
             Err(e) => {
                 return Err(e).wrap_err("failed to receive frame");
@@ -203,29 +219,39 @@ fn recv_with_print_string(
                 }
                 return Ok(Some((header.message_type, payload)));
             }
+            FrameOutput::Legacy => {
+                panic!("host received legacy PUT_PROGRAM_INFO");
+            }
+            FrameOutput::LegacyPrintStringByte(_, _) => {
+                // skipped preamble
+                unreachable!()
+            }
         }
     }
 }
 
-fn send<M: EncodeMessageType + Serialize + Debug>(message: &M, tty: &mut Tty) -> Result<()> {
+pub fn encode<M: EncodeMessageType + Serialize + Debug>(message: &M) -> Result<Vec<u8>> {
     // serialize the message
     let serialized_message =
         postcard::to_stdvec(message).wrap_err(eyre!("failed to encode message <{message:?}>"))?;
+    let payload_len = serialized_message.len();
     // derive message type and payload length
     let message_type = <M as EncodeMessageType>::TYPE;
-    let payload_len = serialized_message.len();
     // build frame that we're COBS-encoding
     let mut message_bytes = vec![];
     message_bytes.extend_from_slice(&u32::from(message_type).to_le_bytes());
     message_bytes.extend_from_slice(&serialized_message);
+    let crc32 = crc32fast::hash(&message_bytes);
+    message_bytes.extend_from_slice(&crc32.to_le_bytes());
 
     // build the final message we're sending over the wire
     let mut wire_bytes = vec![];
     // first, the preamble
     wire_bytes.extend_from_slice(&okboot_common::PREAMBLE_BYTES);
-    wire_bytes.extend_from_slice(
-        &okboot_common::frame::encode_length(payload_len).expect("message payload is >= 16MiB"),
-    );
+    let length_bytes =
+        okboot_common::frame::encode_length(payload_len).expect("message payload is >= 16MiB");
+    // tracing::trace!("encode_len: {payload_len} -> {length_bytes:?}");
+    wire_bytes.extend_from_slice(&length_bytes);
     // COBS-encode the `message_bytes`
     let mut buf = [0; 255];
     let mut buf_enc = BufferedEncoder::with_buffer_xor(&mut buf[..], okboot_common::COBS_XOR);
@@ -239,6 +265,11 @@ fn send<M: EncodeMessageType + Serialize + Debug>(message: &M, tty: &mut Tty) ->
         }
     }
     wire_bytes.extend_from_slice(frame_encoder.finish());
+    Ok(wire_bytes)
+}
+
+fn send<M: EncodeMessageType + Serialize + Debug>(message: &M, tty: &mut Tty) -> Result<()> {
+    let wire_bytes = encode(message)?;
 
     // write to the TTY
     tty.write_all(&wire_bytes)

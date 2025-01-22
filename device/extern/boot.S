@@ -36,6 +36,15 @@
 .section ".text.boot"
 .globl _start
 _start:
+@    mov r0, #1
+@    mov r1, #0x20000000
+@    str r0, [r1, +r1, asr #8]!
+@.L0:
+@    subs r2, r2, #(1 << 9)
+@    strmi r0, [r1, #0x1c]
+@    strpl r0, [r1, #0x28]
+@    b .L0
+
     @ enter supervisor mode
     mrs r0, cpsr
     and r0, r0, #(~MODE_MASK)
@@ -50,13 +59,13 @@ _start:
     ldr r1, =EXTERN_BSS_START
     ldr r2, =EXTERN_BSS_END
 
-_start.bss.L0:
-    cmp r1, r2
-    bge _start.bss.L1
-    strb r0, [r1]
-    add r1, r1, #1
-    b _start.bss.L0
-_start.bss.L1:
+    subs r2, r2, r1
+    bcc _start.zero_bss.L1
+_start.zero_bss.L0:
+    strb r0, [r1], #1
+    subs r2, r2, #1
+    bne _start.zero_bss.L0
+_start.zero_bss.L1:
 
     ldr sp, STACK_HIGH
     mov fp, #0

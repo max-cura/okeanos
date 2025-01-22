@@ -30,7 +30,12 @@ impl RateRelativeTimeout {
     }
 }
 
+/// Amount of time after which an error can be recovered from.
 pub const ERROR_RECOVERY: RateRelativeTimeout = RateRelativeTimeout::from_bytes(12);
+/// Amount of time after which a byte read can time out
 pub const BYTE_READ: RateRelativeTimeout = RateRelativeTimeout::from_bytes(2);
+/// Amount of time after which a session can automatically time out
 pub const SESSION_EXPIRES: RateRelativeTimeout =
     RateRelativeTimeout::from_bytes(12288 /* 0x3000 */);
+/// Interval at which to send GET_PROG_INFO polls
+pub const GET_PROG_INFO_INTERVAL: Duration = Duration::from_millis(300);

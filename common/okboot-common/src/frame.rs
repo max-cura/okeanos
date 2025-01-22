@@ -154,7 +154,7 @@ mod tests {
         let mut j = 0;
         let mut did_finish = false;
         for &i in bytes.iter() {
-            match dec.poll(i).expect("error during frame decoding") {
+            match dec.feed(i).expect("error during frame decoding") {
                 FrameOutput::Skip => {}
                 FrameOutput::Header(h) => {
                     let prev = hdr.replace(h);
@@ -174,6 +174,12 @@ mod tests {
                 }
                 FrameOutput::Finished => {
                     did_finish = true;
+                }
+                FrameOutput::Legacy => {
+                    panic!("entered legacy mode");
+                }
+                FrameOutput::LegacyPrintStringByte(_, _) => {
+                    panic!("entered legacy mode print-string");
                 }
             }
         }

@@ -11,6 +11,23 @@ enum PreambleState {
     Preamble2,
     Preamble3,
     Finished,
+    LegacyPutProgramInfo1,
+    LegacyPutProgramInfo2,
+    LegacyPutProgramInfo3,
+    FinishedLegacyPutProgramInfo,
+    LegacyPutString1,
+    LegacyPutString2,
+    LegacyPutString3,
+    LegacyPutStringLength0,
+    LegacyPutStringLength1([u8; 1]),
+    LegacyPutStringLength2([u8; 2]),
+    LegacyPutStringLength3([u8; 3]),
+}
+pub enum PreambleStatus {
+    Skip,
+    Preamble,
+    LegacyPutProgramInfo,
+    LegacyPutString(u32),
 }
 #[derive(Clone, Copy, Debug, Error)]
 #[error("Found byte {wrong_byte:02x} in state {state:?}")]
@@ -31,31 +48,49 @@ impl PreambleDecoder {
     fn reset(&mut self) {
         self.state = PreambleState::Initial
     }
-    fn feed(&mut self, byte: u8) -> Result<bool, PreambleError> {
-        let new_state;
-        match (self.state, byte) {
-            (PreambleState::Initial, 0x55) => {
-                new_state = PreambleState::Preamble1;
-            }
-            (PreambleState::Preamble1, 0x55) => {
-                new_state = PreambleState::Preamble2;
-            }
-            (PreambleState::Preamble2, 0x55) => {
-                new_state = PreambleState::Preamble3;
-            }
+    fn feed(&mut self, byte: u8) -> Result<PreambleStatus, PreambleError> {
+        let new_state = match (self.state, byte) {
+            (PreambleState::Initial, 0x55) => PreambleState::Preamble1,
+            (PreambleState::Preamble1, 0x55) => PreambleState::Preamble2,
+            (PreambleState::Preamble2, 0x55) => PreambleState::Preamble3,
             (PreambleState::Preamble3, 0x5e) => {
-                new_state = PreambleState::Finished;
+                self.state = PreambleState::Initial;
+                return Ok(PreambleStatus::Preamble);
             }
-            (PreambleState::Preamble3, 0x55) => {
-                new_state = PreambleState::Preamble3;
+            (PreambleState::Preamble3, 0x55) => PreambleState::Preamble3,
+            (PreambleState::Initial, 0x44) => PreambleState::LegacyPutProgramInfo1,
+            (PreambleState::LegacyPutProgramInfo1, 0x44) => PreambleState::LegacyPutProgramInfo2,
+            (PreambleState::LegacyPutProgramInfo2, 0x33) => PreambleState::LegacyPutProgramInfo3,
+            (PreambleState::LegacyPutProgramInfo3, 0x33) => {
+                self.state = PreambleState::Initial;
+                return Ok(PreambleStatus::LegacyPutProgramInfo);
+            }
+            (PreambleState::Initial, 0xee) => PreambleState::LegacyPutString1,
+            (PreambleState::LegacyPutString1, 0xee) => PreambleState::LegacyPutString2,
+            (PreambleState::LegacyPutString2, 0xdd) => PreambleState::LegacyPutString3,
+            (PreambleState::LegacyPutString3, 0xdd) => PreambleState::LegacyPutStringLength0,
+            (PreambleState::LegacyPutStringLength0, x) => {
+                PreambleState::LegacyPutStringLength1([x])
+            }
+            (PreambleState::LegacyPutStringLength1([a]), x) => {
+                PreambleState::LegacyPutStringLength2([a, x])
+            }
+            (PreambleState::LegacyPutStringLength2([a, b]), x) => {
+                PreambleState::LegacyPutStringLength3([a, b, x])
+            }
+            (PreambleState::LegacyPutStringLength3([a, b, c]), x) => {
+                self.state = PreambleState::Initial;
+                return Ok(PreambleStatus::LegacyPutString(u32::from_le_bytes([
+                    a, b, c, x,
+                ])));
             }
             (state, wrong_byte) => {
                 self.state = PreambleState::Initial;
                 return Err(PreambleError { state, wrong_byte });
             }
-        }
+        };
         self.state = new_state;
-        Ok(new_state == PreambleState::Finished)
+        Ok(PreambleStatus::Skip)
     }
 }
 /// Decodes the preamble from a message stream.
@@ -75,7 +110,7 @@ impl PreambleLayer {
     /// Returns `Ok(true)` if `byte` was the last byte of a complete and valid preamble.
     /// Returns `Ok(false)` if `byte` is the next byte of a valid preamble.
     /// Returns `Err` if `byte` is not part of a valid preamble.
-    pub fn poll(&mut self, byte: u8) -> Result<bool, PreambleError> {
+    pub fn poll(&mut self, byte: u8) -> Result<PreambleStatus, PreambleError> {
         self.preamble_decoder.feed(byte)
     }
 }
@@ -205,6 +240,8 @@ enum FrameState {
     Length(usize),
     PacketHeader(usize, usize),
     PacketBody(usize, FrameHeader),
+    Legacy,
+    LegacyPrintString(usize, usize),
 }
 #[derive(Debug)]
 pub struct FrameLayer {
@@ -223,6 +260,8 @@ pub enum FrameOutput {
     Header(FrameHeader),
     Payload(u8),
     Finished,
+    Legacy,
+    LegacyPrintStringByte(usize, u8),
 }
 impl FrameLayer {
     pub fn new(cobs_xor: u8) -> Self {
@@ -260,17 +299,29 @@ impl FrameLayer {
         self.decode_state = FrameState::Preamble;
         self.crc = crc32fast::Hasher::new();
     }
-    pub fn poll(&mut self, byte: u8) -> Result<FrameOutput, FrameError> {
+    pub fn feed(&mut self, byte: u8) -> Result<FrameOutput, FrameError> {
         match self.decode_state {
+            FrameState::Legacy => Ok(FrameOutput::Legacy),
             FrameState::Preamble => {
-                let finished = self
+                match self
                     .preamble_layer
                     .poll(byte)
-                    .map_err(FrameError::Preamble)?;
-                if finished {
-                    self.decode_state = FrameState::Length(0);
+                    .map_err(FrameError::Preamble)?
+                {
+                    PreambleStatus::Preamble => {
+                        self.decode_state = FrameState::Length(0);
+                        Ok(FrameOutput::Skip)
+                    }
+                    PreambleStatus::LegacyPutProgramInfo => {
+                        self.decode_state = FrameState::Legacy;
+                        Ok(FrameOutput::Legacy)
+                    }
+                    PreambleStatus::Skip => Ok(FrameOutput::Skip),
+                    PreambleStatus::LegacyPutString(length) => {
+                        self.decode_state = FrameState::LegacyPrintString(length as usize, 0);
+                        Ok(FrameOutput::Skip)
+                    }
                 }
-                Ok(FrameOutput::Skip)
             }
             FrameState::Length(i) => {
                 if (byte & 0xc0) != 0xc0 {
@@ -341,10 +392,21 @@ impl FrameLayer {
                             if frame_crc != crc {
                                 Err(FrameError::InvalidCRC(crc, frame_crc))
                             } else {
+                                self.decode_state = FrameState::Preamble;
                                 Ok(FrameOutput::Finished)
                             }
                         }
                     }
+                }
+            }
+            FrameState::LegacyPrintString(length, index) => {
+                let next_index = index + 1;
+                if next_index >= length {
+                    self.decode_state = FrameState::Preamble;
+                    Ok(FrameOutput::LegacyPrintStringByte(length, byte))
+                } else {
+                    self.decode_state = FrameState::LegacyPrintString(length, next_index);
+                    Ok(FrameOutput::LegacyPrintStringByte(length, byte))
                 }
             }
         }

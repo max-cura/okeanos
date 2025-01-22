@@ -1,24 +1,31 @@
 #![feature(iter_intersperse)]
+#![feature(assert_matches)]
 
+mod echo;
+mod suboot;
 mod tty;
 mod upload;
+mod v2;
 
 use clap::{CommandFactory, Parser};
+use okboot_common::host::FormatDetails;
 use std::ffi::OsStr;
+use std::fmt::{write, Display, Formatter};
 use std::fs::DirEntry;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileTypeExt;
 use std::path::PathBuf;
 use tracing_subscriber::util::SubscriberInitExt;
 
-pub const DEFAULT_LOAD_ADDRESS: u32 = 0x8000;
+pub const DEFAULT_LOAD_ADDRESS: u64 = 0x8000;
 
 fn main() {
     color_eyre::install().expect("Failed to install `color_eyre`");
-    tracing_subscriber::fmt::Subscriber::builder()
-        .without_time()
-        .finish()
-        .init();
+    // tracing_subscriber::fmt::Subscriber::builder()
+    //     .without_time()
+    //     .finish()
+    //     .init();
+    tracing_subscriber::fmt::init();
 
     let args = parse_args();
 
@@ -26,11 +33,6 @@ fn main() {
         tracing::error!("failed to upload: {e}");
         std::process::exit(1);
     }
-}
-
-pub enum FormatDetails {
-    Bin { load_address: u32 },
-    Elf,
 }
 
 pub struct Args {
@@ -194,6 +196,6 @@ struct CmdArgs {
 
     /* filetype: .bin
      */
-    #[arg(short, long)]
-    pub load_address: Option<u32>,
+    #[arg(short, long, value_parser = clap_num::maybe_hex::<u64>)]
+    pub load_address: Option<u64>,
 }

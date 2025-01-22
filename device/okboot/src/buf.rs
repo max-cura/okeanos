@@ -1,14 +1,11 @@
-use core::fmt;
+use crate::protocol::ReceiveError;
+use bcm2835_lpa::bsc0::S;
+use core::fmt::Write;
 use okboot_common::frame::{EncodeState, FrameEncoder, SliceBufferedEncoder};
 use okboot_common::{EncodeMessageType, PREAMBLE_BYTES};
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum ReceiveError {
-    #[error("receive buffer overflow")]
-    BufferOverflow,
-}
 /// Buffer (not circular).
 #[derive(Debug)]
 pub struct ReceiveBuffer<'a> {
@@ -29,7 +26,7 @@ impl<'a> ReceiveBuffer<'a> {
     }
     pub fn push_u8(&mut self, b: u8) -> Result<(), ReceiveError> {
         if self.cursor >= self.underlying_storage.len() {
-            return Err(ReceiveError::BufferOverflow);
+            Err(ReceiveError::BufferOverflow)
         } else {
             self.underlying_storage[self.cursor] = b;
             self.cursor += 1;
@@ -226,11 +223,19 @@ impl<'tb, 'be, 'px> FrameSink<'tb, 'be, 'px> {
         }
     }
 
-    fn write_frame(&mut self) -> FrameWriter<'_, 'tb, '_> {
+    pub fn write_frame(&mut self) -> FrameWriter<'_, 'tb, '_> {
         FrameWriter::new(
             &mut self.transmit_buffer,
             self.slice_buffered_encoder.frame().unwrap(),
         )
+    }
+
+    pub fn buffer(&self) -> &TransmitBuffer {
+        &self.transmit_buffer
+    }
+
+    pub fn buffer_mut<'a>(&'a mut self) -> &'a mut TransmitBuffer<'tb> {
+        &mut self.transmit_buffer
     }
 }
 
@@ -242,6 +247,7 @@ pub struct FrameWriter<'tbr, 'tb, 'fe> {
     len_offset: usize,
     ok: bool,
     hasher: crc32fast::Hasher,
+    fmt_bytes: usize,
 }
 impl<'tbr, 'tb, 'fe> FrameWriter<'tbr, 'tb, 'fe> {
     pub fn new(
@@ -263,6 +269,7 @@ impl<'tbr, 'tb, 'fe> FrameWriter<'tbr, 'tb, 'fe> {
             len_offset,
             ok,
             hasher: crc32fast::Hasher::new(),
+            fmt_bytes: 0,
         }
     }
     pub fn add_bytes(&mut self, bytes: &[u8]) {
@@ -290,7 +297,7 @@ impl<'tbr, 'tb, 'fe> FrameWriter<'tbr, 'tb, 'fe> {
     pub fn write32(&mut self, x: u32) {
         self.add_bytes(&x.to_le_bytes());
     }
-    pub fn finalize(mut self) -> bool {
+    pub fn finalize(mut self, payload_bytes: usize) -> bool {
         if self.ok {
             let hasher = core::mem::replace(&mut self.hasher, crc32fast::Hasher::new());
             // crc32 should be cobs-encoded, so run it through add_bytes
@@ -305,7 +312,8 @@ impl<'tbr, 'tb, 'fe> FrameWriter<'tbr, 'tb, 'fe> {
             self.transmit_buffer.restore(self.checkpoint);
         } else {
             if let Some(len_bytes) = okboot_common::frame::encode_length(
-                self.transmit_buffer.bytes_since_checkpoint(self.checkpoint) - 8,
+                payload_bytes,
+                // self.transmit_buffer.bytes_since_checkpoint(self.checkpoint) - 8,
             ) {
                 self.transmit_buffer
                     ._write_bytes_at_unchecked(self.len_offset, len_bytes);
@@ -318,41 +326,17 @@ impl<'tbr, 'tb, 'fe> FrameWriter<'tbr, 'tb, 'fe> {
     pub fn abort(self) {
         self.transmit_buffer.restore(self.checkpoint);
     }
+    pub fn fmt_bytes(&self) -> usize {
+        self.fmt_bytes
+    }
 }
 
-impl<'tbr, 'tb, 'fe> core::fmt::Write for FrameWriter<'tbr, 'tb, 'fe> {
+impl<'tbr, 'tb, 'fe> Write for FrameWriter<'tbr, 'tb, 'fe> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         self.add_bytes(s.as_bytes());
+        self.fmt_bytes += s.len();
         Ok(())
     }
-}
-
-#[derive(Default)]
-pub struct WriteHelper<'a> {
-    pub data: &'a mut [u8],
-}
-impl<'a> fmt::Write for WriteHelper<'a> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        let writable = core::cmp::min(self.data.len(), s.len());
-        self.data[..writable].copy_from_slice(&s.as_bytes()[..writable]);
-        let (taken, rem) = core::mem::take(self).data.split_at_mut(writable);
-        taken.copy_from_slice(&s.as_bytes()[..writable]);
-        *self = Self { data: rem };
-        // silently fail
-        Ok(())
-    }
-}
-
-#[macro_export]
-macro_rules! print_rpc {
-($fs:expr, $fmtbuf:expr, $($args:tt)*) => {
-    #[allow(unused_imports)]
-    use ::core::io::Write as _;
-    let _ = ::core::write!($crate::buf::WriteHelper { data: $fmtbuf }, $($args)*);
-    $crate::buf::FrameSink::send($fs, PrintString {
-        string: $fmtbuf,
-    });
-}
 }
 
 #[derive(Debug, Error)]
@@ -361,10 +345,12 @@ pub enum SendError {
     Postcard(postcard::Error),
     #[error("error constructing frame encoder")]
     ConstructEncoder,
+    #[error("insufficient space in buffer")]
+    Truncated,
 }
 
 impl FrameSink<'_, '_, '_> {
-    pub fn send<T: EncodeMessageType + Serialize>(&mut self, msg: &T) -> Result<bool, SendError> {
+    pub fn send<T: EncodeMessageType + Serialize>(&mut self, msg: &T) -> Result<(), SendError> {
         let px_buf = Option::take(&mut self.postcard_buffer).unwrap();
         let mut fw = FrameWriter::new(
             &mut self.transmit_buffer,
@@ -376,7 +362,11 @@ impl FrameSink<'_, '_, '_> {
         let r = match postcard::to_slice(msg, px_buf) {
             Ok(buf) => {
                 fw.add_bytes(buf);
-                Ok(fw.finalize())
+                if fw.finalize(buf.len()) {
+                    Ok(())
+                } else {
+                    Err(SendError::Truncated)
+                }
             }
             Err(e) => {
                 fw.abort();
@@ -391,13 +381,14 @@ impl FrameSink<'_, '_, '_> {
 pub fn send<T: EncodeMessageType + Serialize>(
     fs: &mut FrameSink,
     msg: &T,
-) -> Result<bool, SendError> {
+) -> Result<(), SendError> {
     fs.send(msg)
 }
 
+/// Legacy println
 pub mod legacy_compat {
     use super::{FrameSink, TransmitBuffer, TransmitBufferCheckpoint};
-    use core::fmt;
+    use core::fmt::Write;
 
     pub trait LegacyPrintString<'tb> {
         fn legacy_print_string(&mut self) -> Writer<'_, 'tb>;
@@ -447,8 +438,8 @@ pub mod legacy_compat {
             self.ok
         }
     }
-    impl<'a, 'b> fmt::Write for Writer<'a, 'b> {
-        fn write_str(&mut self, s: &str) -> fmt::Result {
+    impl<'a, 'b> Write for Writer<'a, 'b> {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
             if self.ok {
                 self.ok = self.transmit_buffer.extend_from_slice(s.as_bytes());
             }
@@ -461,14 +452,31 @@ pub mod legacy_compat {
     ($tx_buf:expr, $($args:tt)*) => {
         // $w is expected to be transmit buffer
         #[allow(unused_imports)]
-        use core::fmt::Write as _;
-        let txbuf : &mut $crate::buf:TransmissionBufferr = $tx_buf;
+        use ::core::fmt::Write as _;
+        let txbuf : &mut $crate::buf::FrameSink = $tx_buf;
         let mut writer = $crate::buf::legacy_compat::LegacyPrintString::legacy_print_string(txbuf);
-        let _ = core::write!(
+        let _ = ::core::writeln!(
             writer,
             $($args)*
         );
         writer.finalize();
+    }
+    }
+}
+
+/// V2 println
+pub mod print {
+    #[macro_export]
+    macro_rules! rpc_println {
+    ($fs:expr, $($args:tt)*) => {
+        #[allow(unused_imports)]
+        use ::core::fmt::Write as _;
+        let fs: &mut $crate::buf::FrameSink = $fs;
+        let mut writer = fs.write_frame();
+        writer.write32(::okboot_common::MessageType::PrintString as u32);
+        ::core::writeln!(&mut writer, $($args)*).unwrap();
+        let fmt_bytes = writer.fmt_bytes();
+        writer.finalize(fmt_bytes);
     }
     }
 }

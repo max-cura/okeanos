@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::Duration;
 use std::{io, ptr, slice};
+use tracing::instrument;
 
 #[derive(Debug, Copy, Clone)]
 pub enum ClearBuffer {
@@ -149,17 +150,18 @@ impl Write for Tty {
 }
 
 impl Tty {
+    #[instrument(skip(path), fields(path = ?path.as_ref()))]
     pub fn new<P: AsRef<Path>>(path: P, baud: u32) -> Result<Self> {
-        let path_cstr = CString::new(path.as_ref().as_os_str().as_encoded_bytes()).unwrap();
+        let path_cstr = CString::new(path.as_ref().as_os_str().as_encoded_bytes())?;
         unsafe {
-            // log::trace!("calling libc::open");
+            // tracing::trace!("calling libc::open");
             let fd = libc::open(
                 path_cstr.into_raw(),
                 // readwrite, NOCTTY, SYNC, close-on-exec, don't block on open or for data to become
                 // available
                 libc::O_RDWR | libc::O_NOCTTY | libc::O_SYNC | libc::O_CLOEXEC | libc::O_NONBLOCK,
             );
-            // log::trace!("libc::open returned {fd}");
+            // tracing::trace!("libc::open returned {fd}");
             if fd >= 0 {
                 let mut this = Self {
                     fd,
@@ -167,6 +169,7 @@ impl Tty {
                     path: path.as_ref().to_path_buf(),
                 };
                 this.set_baud_rate(baud)?;
+                // tracing::trace!("finished setting baud rate");
                 Ok(this)
             } else {
                 eyre::bail!(
@@ -312,9 +315,10 @@ impl Tty {
         }
     }
 
-    fn _set_speed(&mut self, baud: u32, drain: bool) -> Result<()> {
+    #[instrument(skip(self))]
+    unsafe fn _set_speed(&mut self, baud: u32, drain: bool) -> Result<()> {
         let mut tios = {
-            let mut tios_fake = MaybeUninit::uninit();
+            let mut tios_fake: MaybeUninit<libc::termios> = MaybeUninit::uninit();
             // SAFETY: safe as long as `tcgetattr()` sets the `termios` information correctly.
             let r = unsafe { libc::tcgetattr(self.fd, tios_fake.as_mut_ptr()) };
             if r != 0 {
@@ -466,9 +470,11 @@ impl Tty {
 
         // FIX: we end up needing to ignore errors from iossiospeed
         // XXX(mc): seems like we aren't actually ignoring them?
+        // XXX(mc): nvm, iossiospeed fails if it's a PTY, which is the case when using socat for
+        //          debugging
         unsafe {
-            iossiospeed(self.fd, &raw const speed)
-                .map_err(|c_err| eyre::eyre!("failed to set speed (iossiospeed): {}", c_err))?
+            let _ = iossiospeed(self.fd, &raw const speed);
+            // .map_err(|c_err| eyre::eyre!("failed to set speed (iossiospeed): {}", c_err))?
         };
         Ok(())
     }

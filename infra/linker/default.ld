@@ -17,7 +17,7 @@ __symbol_exec_end__
 
 SECTIONS {
     ENTRY(_start)
-    .text 0x10000 : {
+    .text 0x20000 : {
         __symbol_exec_start__ = .;
         __symbol_code_start__ = .;
         KEEP(*(.text.boot))

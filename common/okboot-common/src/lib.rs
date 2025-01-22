@@ -31,7 +31,7 @@ pub trait EncodeMessageType {
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Eq, PartialEq)]
 #[repr(u32)]
 pub enum MessageType {
-    /// Corresponds to [`PrintString`](device::PrintString).
+    /// Corresponds to an unserialized UTF-8 string type.
     PrintString = 101,
     /// Corresponds to [`Probe`](host::Probe)
     Probe = 201,
@@ -86,6 +86,7 @@ impl TryFrom<u32> for MessageType {
 pub const INITIAL_BAUD_RATE: u32 = 115200;
 
 pub mod su_boot {
+
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
     #[repr(u32)]
     pub enum Command {
@@ -101,5 +102,28 @@ pub mod su_boot {
         BootError = 0xBBBBCCCC,   // pi sends on failure.
 
         PrintString = 0xDDDDEEEE, // pi sends to print a string.
+    }
+}
+
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum SupportedProtocol {
+    V2 = 2,
+}
+impl TryFrom<u32> for SupportedProtocol {
+    type Error = u32;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            2 => Ok(Self::V2),
+            _ => Err(value),
+        }
+    }
+}
+impl SupportedProtocol {
+    pub fn baud_rate(self) -> u32 {
+        match self {
+            SupportedProtocol::V2 => 921600,
+        }
     }
 }

@@ -1,0 +1,3 @@
+#!/bin/bash
+
+bin/theseus-upload build/$1/${1//-/_}.bin -a 0x20000 -vvv --device /dev/cu.usbserial-$2
