@@ -2,18 +2,17 @@ use crate::tty::Tty;
 use crate::Args;
 use eyre::{bail, ensure, eyre, Result, WrapErr};
 use indicatif::{ProgressBar, ProgressStyle};
-use okboot_common::frame::{FrameError, FrameHeader, FrameLayer, FrameOutput};
+use okboot_common::frame::{FrameHeader, FrameLayer, FrameOutput};
 use okboot_common::host::FormatDetails;
 use okboot_common::{device, host, EncodeMessageType, MessageType, COBS_XOR, INITIAL_BAUD_RATE};
 use serde::Serialize;
-use std::assert_matches::assert_matches;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{mpsc, Arc};
 
-struct Decoder {
+pub struct Decoder {
     received_messages: Sender<(MessageType, Vec<u8>)>,
 
     decoder: FrameLayer,
@@ -146,7 +145,7 @@ struct Info {
     pub decompressed_crc: u32,
 
     pub chunk_size: usize,
-    pub num_compressed_chunks: usize,
+    // pub num_compressed_chunks: usize,
 }
 
 type Tx = Sender<Vec<u8>>;
@@ -177,7 +176,7 @@ fn upload_inner(
         decompressed_crc: crc,
 
         chunk_size: 0,
-        num_compressed_chunks: 0,
+        // num_compressed_chunks: 0,
     };
     let mut progress_bar = ProgressBar::new_spinner();
 
@@ -239,6 +238,7 @@ fn upload_inner(
                         tracing::error!("[v2] failed to send {msg:?}: {e}, continuing.");
                     }
                     tracing::info!("[v2] device is booting");
+                    break;
                 }
                 t => {
                     tracing::error!("[v2] unrecognized message type: {t:?}, ignoring.");
@@ -251,7 +251,6 @@ fn upload_inner(
             }
         }
     }
-
     Ok(())
 }
 
@@ -336,9 +335,9 @@ fn dispatch_metadata_ack(
         return Err(e);
     }
     if ok {
-        let num_compressed_chunks = (info.compressed_len as usize + msg.chunk_size as usize - 1)
-            / (msg.chunk_size as usize);
-        let mut pb = ProgressBar::new(info.compressed_len as u64);
+        // let num_compressed_chunks = (info.compressed_len as usize + msg.chunk_size as usize - 1)
+        //     / (msg.chunk_size as usize);
+        let pb = ProgressBar::new(info.compressed_len as u64);
         pb.set_style(ProgressStyle::with_template(
             "[{elapsed_precise}] {bar:60.cyan/blue} [{bytes:}/{total_bytes}] {bytes_per_sec}",
         )?);
@@ -346,7 +345,7 @@ fn dispatch_metadata_ack(
         Ok((
             Info {
                 chunk_size: msg.chunk_size as usize,
-                num_compressed_chunks,
+                // num_compressed_chunks,
                 ..*info
             },
             pb,
@@ -363,7 +362,7 @@ fn dispatch_chunk_req(
     tx: &mut Tx,
     progress_bar: &ProgressBar,
 ) {
-    tracing::info!("[v2] received V2/ChunkReq(which={})", msg.which);
+    tracing::trace!("[v2] received V2/ChunkReq(which={})", msg.which);
     let chunk_idx = msg.which as usize;
     let chunk_begin = chunk_idx * info.chunk_size;
     let chunk_end = (chunk_begin + info.chunk_size).min(compressed_data.len());

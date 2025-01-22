@@ -22,7 +22,9 @@
 //      commit ( selected , pred_kind - 1, kind )
 //! Naive implementation of a Physical Memory Manager for the ARM1176JZF-S.
 
+#[allow(non_upper_case_globals)]
 const KiB: usize = 1024;
+#[allow(non_upper_case_globals)]
 const MiB: usize = 1024 * KiB;
 use core::fmt::{Debug, Formatter};
 use core::mem::{size_of, MaybeUninit};
@@ -388,6 +390,7 @@ impl PMM {
             RegionKind::SmallPage => None,
         }
     }
+    #[allow(dead_code)]
     fn floating_list_mut(&mut self, region_kind: RegionKind) -> Option<&mut Option<usize>> {
         match region_kind {
             RegionKind::LargePage => Some(&mut self.floating_lists[0]),

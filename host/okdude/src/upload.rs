@@ -1,13 +1,10 @@
 use crate::tty::Tty;
 use crate::{echo, Args};
-use eyre::{bail, ensure, eyre, Context, Result};
+use eyre::{bail, eyre, Context, Result};
 use okboot_common::device::AllowedVersions;
-use okboot_common::frame::{
-    BufferedEncoder, EncodeState, FrameEncoder, FrameError, FrameLayer, FrameOutput,
-};
+use okboot_common::frame::{BufferedEncoder, EncodeState, FrameLayer, FrameOutput};
 use okboot_common::host::UseVersion;
 use okboot_common::{EncodeMessageType, MessageType, SupportedProtocol, COBS_XOR};
-use postcard::fixint::be::serialize;
 use serde::Serialize;
 use std::fmt::Debug;
 use std::io::{ErrorKind, Read, Write};
@@ -56,7 +53,7 @@ pub fn upload(args: Args) -> Result<()> {
     echo::echo(&args, &mut tty)
 }
 
-fn try_promotion_handshake(args: &Args, tty: &mut Tty) -> Option<UseVersion> {
+fn try_promotion_handshake(_args: &Args, tty: &mut Tty) -> Option<UseVersion> {
     const PROMOTION_RECV_TIMEOUT: Duration = Duration::from_millis(100);
     if let Err(e) = send(&okboot_common::host::Probe {}, tty) {
         tracing::error!("[host]: failed to send Probe: {e}");

@@ -1,5 +1,4 @@
 use crate::protocol::ReceiveError;
-use bcm2835_lpa::bsc0::S;
 use core::fmt::Write;
 use okboot_common::frame::{EncodeState, FrameEncoder, SliceBufferedEncoder};
 use okboot_common::{EncodeMessageType, PREAMBLE_BYTES};
@@ -62,6 +61,7 @@ impl<'a> TransmitBuffer<'a> {
 
     // Simple mutating utility methods -------------------------------------------------------------
 
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.underlying_storage.iter_mut().for_each(|x| *x = 0);
         self.circle_begin = 0;

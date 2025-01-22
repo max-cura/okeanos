@@ -23,7 +23,6 @@ pub unsafe fn locate_end() -> *const [u8; 0] {
 pub mod flat_binary {
     use crate::arch::arm1176::PAGE_SIZE;
     use crate::buf::FrameSink;
-    use crate::legacy_print_string_blocking;
     use crate::stub::{__symbol_relocation_stub, __symbol_relocation_stub_end};
     use bcm2835_lpa::Peripherals;
 

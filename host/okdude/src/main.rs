@@ -10,21 +10,15 @@ mod v2;
 use clap::{CommandFactory, Parser};
 use okboot_common::host::FormatDetails;
 use std::ffi::OsStr;
-use std::fmt::{write, Display, Formatter};
 use std::fs::DirEntry;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileTypeExt;
 use std::path::PathBuf;
-use tracing_subscriber::util::SubscriberInitExt;
 
 pub const DEFAULT_LOAD_ADDRESS: u64 = 0x8000;
 
 fn main() {
     color_eyre::install().expect("Failed to install `color_eyre`");
-    // tracing_subscriber::fmt::Subscriber::builder()
-    //     .without_time()
-    //     .finish()
-    //     .init();
     tracing_subscriber::fmt::init();
 
     let args = parse_args();
@@ -37,14 +31,13 @@ fn main() {
 
 pub struct Args {
     device: PathBuf,
-    baud: u32,
     quiet: bool,
     file: PathBuf,
     format_details: FormatDetails,
 }
 
 fn parse_args() -> Args {
-    let mut args = CmdArgs::parse();
+    let args = CmdArgs::parse();
 
     let device = args.device.unwrap_or_else(|| {
         tracing::warn!("no device specified, searching for suitable TTY");
@@ -116,7 +109,6 @@ fn parse_args() -> Args {
 
     Args {
         device,
-        baud: args.baud,
         quiet: args.quiet,
         file: args.file,
         format_details,
@@ -177,13 +169,6 @@ struct CmdArgs {
     #[arg(short, long)]
     pub(crate) device: Option<PathBuf>,
 
-    /// Baud rate to upload at
-    #[arg(short, long, default_value_t = 115200)]
-    pub baud: u32,
-
-    // /// Increase message verbosity
-    // #[arg(short='v', action=clap::ArgAction::Count)]
-    // pub verbose: u8,
     /// Silence all output
     #[arg(short, long)]
     pub quiet: bool,

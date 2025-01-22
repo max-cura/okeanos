@@ -13,7 +13,9 @@ use tracing::instrument;
 
 #[derive(Debug, Copy, Clone)]
 pub enum ClearBuffer {
+    #[allow(unused)]
     Input,
+    #[allow(unused)]
     Output,
     All,
 }
@@ -47,6 +49,7 @@ impl Tty {
         self._read_timeout(buf, timeout)
     }
 
+    #[allow(dead_code)]
     pub fn read_nonblocking(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.len() == 0 {
             return Ok(0);

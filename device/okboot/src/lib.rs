@@ -7,11 +7,8 @@
 use crate::arch::mini_uart;
 use crate::arch::timing::delay_millis;
 use crate::legacy::fmt::BOOT_UMSG_BUF;
-use crate::pmm_static::PMM;
 use bcm2835_lpa::Peripherals;
-use core::arch::asm;
 use core::cell::UnsafeCell;
-use core::mem::MaybeUninit;
 use core::panic::PanicInfo;
 use okboot_common::INITIAL_BAUD_RATE;
 
@@ -20,6 +17,7 @@ mod buf;
 pub mod legacy;
 mod protocol;
 mod stub;
+#[allow(dead_code)]
 mod sync;
 pub mod timeouts;
 
@@ -27,25 +25,7 @@ pub mod timeouts;
 pub struct TTBRegion(UnsafeCell<[u8; 0x4000]>);
 unsafe impl Sync for TTBRegion {}
 pub static TTB_REGION: TTBRegion = TTBRegion(UnsafeCell::new([0; 0x4000]));
-// optimization: this lets us go into BSS
-mod pmm_static {
-    use crate::arch::arm1176::pmm::PMM;
-    use crate::arch::arm1176::sync::ticket::TicketLock;
-    use crate::sync::once::OnceLockInit;
-    use core::mem::size_of;
 
-    static PMM_REGION: [u8; size_of::<PMM>()] = [0; size_of::<PMM>()];
-    pub static PMM: OnceLockInit<
-        TicketLock<&'static mut PMM>,
-        fn() -> TicketLock<&'static mut PMM>,
-    > = OnceLockInit::new(|| {
-        TicketLock::new(unsafe {
-            crate::arch::arm1176::pmm::pmm_init_at(
-                core::ptr::NonNull::new(PMM_REGION.as_ptr().cast::<PMM>().cast_mut()).unwrap(),
-            )
-        })
-    });
-}
 #[no_mangle]
 pub extern "C" fn __symbol_kstart() -> ! {
     // NOTE: It seems to be impractical/impossible to zero out the BSS in life-after-main, so we
@@ -54,23 +34,20 @@ pub extern "C" fn __symbol_kstart() -> ! {
     // because there is no way to get a pointer with provenance for the whole BSS section.
 
     let peripherals = unsafe { Peripherals::steal() };
-    mini_uart::muart1_init(&peripherals.GPIO, &peripherals.AUX, &peripherals.UART1, 270);
+    const _: () = {
+        assert!(
+            INITIAL_BAUD_RATE == 115200,
+            "B115200_DIVIDER adjustment required"
+        );
+    };
+    const B115200_DIVIDER: u16 = 270;
+    mini_uart::muart1_init(
+        &peripherals.GPIO,
+        &peripherals.AUX,
+        &peripherals.UART1,
+        B115200_DIVIDER,
+    );
     delay_millis(&peripherals.SYSTMR, 100);
-
-    {
-        // check BSS
-        let base = &raw const stub::__symbol_bss_start__;
-        let end = &raw const stub::__symbol_bss_end__;
-        let mut p = base.as_ptr();
-        let end = end.as_ptr();
-        while p < end {
-            let b = unsafe { p.read_volatile() };
-            if unsafe { b } != 0 {
-                legacy_print_string_blocking!(&peripherals.UART1, "bad BSS byte at {p:#?}: {b}\n",);
-            }
-            p = unsafe { p.add(1) };
-        }
-    }
 
     legacy_print_string_blocking!(&peripherals.UART1, "initializing MMU\n");
 
@@ -90,16 +67,6 @@ pub extern "C" fn __symbol_kstart() -> ! {
         )
     }
     legacy_print_string_blocking!(&peripherals.UART1, "MMU: -dcache -icache +brpdx\n");
-    let mut pmm = PMM.get().lock();
-    unsafe {
-        (&mut pmm).initialize_once(&[(
-            0 as *mut u8,
-            core::ptr::addr_of!(crate::stub::__symbol_exec_end__)
-                .cast_mut()
-                .cast(),
-        )])
-    }
-    legacy_print_string_blocking!(&peripherals.UART1, "built PMM\n");
     unsafe {
         arch::arm1176::mmu::__set_mmu_enabled_features(
             arch::arm1176::mmu::MMUEnabledFeaturesConfig {
@@ -111,38 +78,9 @@ pub extern "C" fn __symbol_kstart() -> ! {
     }
     legacy_print_string_blocking!(&peripherals.UART1, "MMU: +dcache +icache +brpdx\n");
 
-    {
-        // let mut p = (&raw const stub::__symbol_exec_end__).addr() as *const u8;
-        // let end = 0x2000_0000 as *const [u8; 0];
-        // let end = end.as_ptr();
-        // while p < end {
-        //     let b = unsafe { p.read_volatile() };
-        //     if unsafe { b } != 0 {
-        //         legacy_print_string_blocking!(&peripherals.UART1, "{p:#?}: {b}\n",);
-        //     }
-        //     p = unsafe { p.add(1) };
-        // }
-    }
-
-    peripherals
-        .GPIO
-        .gpfsel2()
-        .modify(|_, w| w.fsel27().output());
-
-    legacy_print_string_blocking!(&peripherals.UART1, "FSEL27 done\n");
-
-    let mut sp: u32;
-    unsafe {
-        asm!(
-        "mov {t}, sp",
-        "wfe",
-        t = out(reg) sp
-        );
-    }
-    legacy_print_string_blocking!(&peripherals.UART1, "SP={sp:08x}\n");
     protocol::run(&peripherals);
 
-    // legacy_print_string_blocking!(&peripherals.UART1, "protocol failure; restarting");
+    legacy_print_string_blocking!(&peripherals.UART1, "protocol failure; restarting");
 
     __symbol_kreboot()
 }

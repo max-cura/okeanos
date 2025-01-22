@@ -96,13 +96,12 @@ impl<const N: usize> core::fmt::Write for TinyBuf<N> {
 
 pub struct SyncWrapper(pub UnsafeCell<TinyBuf<0x100>>);
 unsafe impl Sync for SyncWrapper {}
-pub static mut BOOT_UMSG_BUF: SyncWrapper = SyncWrapper(UnsafeCell::new(TinyBuf::new()));
+pub static BOOT_UMSG_BUF: SyncWrapper = SyncWrapper(UnsafeCell::new(TinyBuf::new()));
 
 #[macro_export]
 macro_rules! legacy_print_string_blocking {
     ($out:expr, $($arg:tt)*) => {
         {
-            // let mut buf : $crate::fmt::TinyBuf<1000> = Default::default();
             // TODO: fix this - currently will truncate if buffer is too smaller
             //       I think the fix will be a little complicated so I'm putting it off for now but
             //       the basic idea would be create a local fmt::Write object that pipes to UART1
@@ -119,7 +118,6 @@ macro_rules! legacy_print_string_blocking {
                 let _ = tmp.write_str(bub.as_str());
                 $crate::legacy::uart1::uart1_flush_tx($out)
             }
-            // let _ = ::core::write!($($arg)*);
         }
     }
 }

@@ -7,7 +7,7 @@ use bcm2835_lpa::Peripherals;
 use core::fmt::Debug;
 use core::time::Duration;
 use miniz_oxide::inflate::stream::InflateState;
-use miniz_oxide::{DataFormat, MZError, MZFlush, MZResult, MZStatus, StreamResult};
+use miniz_oxide::{DataFormat, MZError, MZFlush, MZStatus};
 use okboot_common::frame::FrameHeader;
 use okboot_common::host::{Chunk, FormatDetails, Metadata};
 use okboot_common::{device, host, MessageType};
@@ -112,7 +112,7 @@ impl super::Protocol for V2 {
             MessageType::Metadata => {
                 rpc_println!(frame_sink, "[device/v2] V2Timeouts={:?}", self.timeouts);
                 // rpc_println!(frame_sink, "[device/v2] received V2/Metadata");
-                let msg: host::Metadata = match postcard::from_bytes(payload) {
+                let msg: Metadata = match postcard::from_bytes(payload) {
                     Ok(msg) => msg,
                     Err(e) => {
                         rpc_println!(
@@ -324,7 +324,7 @@ impl V2 {
 
             let (a, b) = inflate_buffer.split_at_mut(0x2000);
             {
-                let mut new_end = msg.bytes.len() + self.remainder;
+                let new_end = msg.bytes.len() + self.remainder;
                 assert!(a.len() >= new_end);
                 a[self.remainder..new_end].copy_from_slice(msg.bytes);
                 self.remainder = new_end;
@@ -343,7 +343,7 @@ impl V2 {
                 //     "[device/v2] inflate to: {:02x?}",
                 //     &b[..inflate_result.bytes_written]
                 // );
-                rpc_println!(frame_sink, "[device/v2] inflate: {:?}", inflate_result);
+                // rpc_println!(frame_sink, "[device/v2] inflate: {:?}", inflate_result);
 
                 let mut done = false;
                 match inflate_result.status {
@@ -363,7 +363,7 @@ impl V2 {
                     },
                     Err(e) => match e {
                         MZError::Buf => {
-                            rpc_println!(frame_sink, "[device/v2] failed to make inflate progress");
+                            // rpc_println!(frame_sink, "[device/v2] failed to make inflate progress");
                             assert_eq!(inflate_result.bytes_consumed, 0);
                             assert_eq!(inflate_result.bytes_written, 0);
                             break;
@@ -522,9 +522,6 @@ impl V2 {
     }
 }
 
-enum BootOp {
-    //
-}
 #[derive(Debug)]
 struct Booter {
     relocation: Relocation,
@@ -565,7 +562,6 @@ trait Loader: Debug {
 
 #[derive(Debug)]
 struct BinLoader {
-    load_address: u32,
     metadata: Metadata,
 
     relocation: Relocation,
@@ -579,7 +575,6 @@ impl BinLoader {
             unsafe { crate::stub::locate_end() }.addr(),
         );
         Self {
-            load_address,
             metadata,
             relocation,
             bytes_written: 0,
@@ -637,6 +632,7 @@ impl Loader for BinLoader {
 
 #[derive(Debug)]
 struct ElfLoader {
+    #[allow(unused)]
     metadata: Metadata,
 }
 impl ElfLoader {
