@@ -1,5 +1,5 @@
-use crate::arch::arm1176::__dsb;
 use bcm2835_lpa::UART1;
+use quartz::arch::arm1176::__dsb;
 
 pub fn uart1_write8(uart1_device: &UART1, x: u8) {
     __dsb();

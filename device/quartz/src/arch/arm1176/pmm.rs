@@ -27,7 +27,7 @@ const KiB: usize = 1024;
 #[allow(non_upper_case_globals)]
 const MiB: usize = 1024 * KiB;
 use core::fmt::{Debug, Formatter};
-use core::mem::{size_of, MaybeUninit};
+use core::mem::{MaybeUninit, size_of};
 use core::ptr::NonNull;
 use thiserror::Error;
 
@@ -47,27 +47,31 @@ struct PMMInit {
 }
 impl PMMInit {
     unsafe fn from_self_ptr(mut this_ptr: NonNull<Self>) -> &'static mut PMM {
-        let this = this_ptr.as_mut();
+        let this = unsafe { this_ptr.as_mut() };
         this.floating_lists.write([None; 3]);
         let regions_ptr = this.regions.as_mut_ptr();
         let regions_ptr = regions_ptr.as_mut_ptr();
         for i in 0..0x2220 {
-            regions_ptr.offset(i).write(RegionInfo {
-                bitmap: 0xffff,
-                next: CHAIN_END,
-                prev: CHAIN_END,
-            })
+            unsafe {
+                regions_ptr.offset(i).write(RegionInfo {
+                    bitmap: 0xffff,
+                    next: CHAIN_END,
+                    prev: CHAIN_END,
+                })
+            }
         }
         this.supersection_mask.write(0xffff_ffff);
         this.floating_counts.write([0; 3]);
         this.allocated_counts.write([0; 4]);
-        core::mem::transmute::<&mut PMMInit, &mut PMM>(this)
+        unsafe { core::mem::transmute::<&mut PMMInit, &mut PMM>(this) }
     }
 }
 
 pub unsafe fn pmm_init_at(ptr: NonNull<PMM>) -> &'static mut PMM {
-    ptr.write_bytes(0, size_of::<PMM>());
-    PMMInit::from_self_ptr(ptr.cast::<PMMInit>())
+    unsafe {
+        ptr.write_bytes(0, size_of::<PMM>());
+        PMMInit::from_self_ptr(ptr.cast::<PMMInit>())
+    }
 }
 
 #[repr(C)]

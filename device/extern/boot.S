@@ -5,8 +5,8 @@
 @
 
 #ifndef CUSTOM_STACK
-.extern __symbol_exec_start__
-    #define STACK_HIGH =__symbol_exec_start__
+.extern __symbol_stack_end__
+    #define STACK_HIGH __symbol_stack_end__
 #elif !defined(STACK_HIGH)
     #error "CUSTOM_STACK is defined but STACK_HIGH is not"
 #endif
@@ -67,7 +67,7 @@ _start.zero_bss.L0:
     bne _start.zero_bss.L0
 _start.zero_bss.L1:
 
-    ldr sp, STACK_HIGH
+    ldr sp, =STACK_HIGH
     mov fp, #0
     bl EXTERN_KERNEL_FN
     bl EXTERN_REBOOT_FN

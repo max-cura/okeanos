@@ -1,4 +1,4 @@
-use super::arm1176::__dsb;
+use crate::arch::arm1176::__dsb;
 use bcm2835_lpa::SYSTMR;
 use core::intrinsics::unlikely;
 use core::time::Duration;

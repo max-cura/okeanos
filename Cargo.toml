@@ -2,10 +2,11 @@
 resolver = "2"
 members = [
     "common/okboot-common",
-#    "common/okreg",
-    "device/ok-registers",
+    #    "common/okreg",
+    "device/bismuth",
     "device/okboot",
+    "device/quartz",
     "host/okdude",
-#    "tock/libraries/tock-register-interface",
-#    "tock/libraries/tock-register-interface/derive"
+    #    "tock/libraries/tock-register-interface",
+    #    "tock/libraries/tock-register-interface/derive"
 ]

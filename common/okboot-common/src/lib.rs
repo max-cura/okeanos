@@ -123,7 +123,7 @@ impl TryFrom<u32> for SupportedProtocol {
 impl SupportedProtocol {
     pub fn baud_rate(self) -> u32 {
         match self {
-            SupportedProtocol::V2 => 921600,
+            SupportedProtocol::V2 => 1_500_000,
         }
     }
 }

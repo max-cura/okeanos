@@ -21,3 +21,8 @@ okboot:
 	params+=("build-artefact=okboot"); \
 	params+=("build-asm-files=boot.S stub.S"); \
 	$(build)
+
+bismuth:
+	params+=("build-artefact=bismuth"); \
+	params+=("build-asm-files=boot.S int.S"); \
+	$(build)

@@ -29,12 +29,12 @@ impl<'a> core::fmt::Write for UartWrite<'a> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct TinyBuf<const N: usize> {
+pub struct FixedArrayBuffer<const N: usize> {
     inner: [u8; N],
     curs: usize,
     truncated: bool,
 }
-impl<const N: usize> TinyBuf<N> {
+impl<const N: usize> FixedArrayBuffer<N> {
     pub fn as_str(&self) -> &str {
         unsafe { core::str::from_utf8_unchecked(&self.inner[..self.curs]) }
     }
@@ -44,7 +44,7 @@ impl<const N: usize> TinyBuf<N> {
     }
 }
 
-impl<const N: usize> TinyBuf<N> {
+impl<const N: usize> FixedArrayBuffer<N> {
     const fn new() -> Self {
         Self {
             inner: [0; N],
@@ -59,13 +59,13 @@ impl<const N: usize> TinyBuf<N> {
     }
 }
 
-impl<const N: usize> Default for TinyBuf<N> {
+impl<const N: usize> Default for FixedArrayBuffer<N> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const N: usize> core::fmt::Write for TinyBuf<N> {
+impl<const N: usize> core::fmt::Write for FixedArrayBuffer<N> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         const TRUNCATION_NOTICE: &str = "<truncated>";
 
@@ -94,9 +94,9 @@ impl<const N: usize> core::fmt::Write for TinyBuf<N> {
     }
 }
 
-pub struct SyncWrapper(pub UnsafeCell<TinyBuf<0x100>>);
+pub struct SyncWrapper(pub UnsafeCell<FixedArrayBuffer<0x100>>);
 unsafe impl Sync for SyncWrapper {}
-pub static BOOT_UMSG_BUF: SyncWrapper = SyncWrapper(UnsafeCell::new(TinyBuf::new()));
+pub static BOOT_UMSG_BUF: SyncWrapper = SyncWrapper(UnsafeCell::new(FixedArrayBuffer::new()));
 
 #[macro_export]
 macro_rules! legacy_print_string_blocking {

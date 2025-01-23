@@ -1,5 +1,6 @@
 use core::arch::asm;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct MMUEnabledFeaturesConfig {
     pub dcache: Option<bool>,
     pub icache: Option<bool>,
@@ -34,6 +35,55 @@ pub unsafe fn __set_mmu_enabled_features(config: MMUEnabledFeaturesConfig) {
         }
     }
     if cr_on != 0 || cr_off != 0 {
+        unsafe {
+            asm!(
+            "mrc p15, 0, {t}, c1, c0, 0",
+            "orr {t}, {t}, {cr_on}",
+            "and {t}, {t}, {cr_off}",
+            "mcr p15, 0, {t}, c1, c0, 0",
+            t = out(reg) _,
+            cr_on = in(reg) cr_on,
+            cr_off = in(reg) !cr_off,
+            );
+        }
+    }
+}
+
+#[inline(never)]
+pub unsafe fn __init_mmu(ttb_ptr: *mut u32) {
+    // Initialize TTB
+    unsafe {
+        // TTB
+        __init_mmu_translation_table(ttb_ptr);
+        // DAC, PRRR, NMRR
+        __init_mmu_tex_remap();
+    }
+
+    // Mainline MMU initialization
+
+    // translation table base register 0
+    let ttb0 = (ttb_ptr as usize as u32) | 0b01001;
+    unsafe {
+        asm!(
+        "mcr p15, 0, {t}, c2, c0, 0",
+        t = in(reg) ttb0,
+        );
+    }
+
+    // translation table base control register
+    let ttbcr = 0b100000;
+    unsafe {
+        asm!(
+        "mcr p15, 0, {t}, c2, c0, 2",
+        t = in(reg) ttbcr,
+        );
+    }
+
+    // XP=1 (use ARMv6 page tables)
+    let cr_on = 1 << 23;
+    // I=0 (disable icache)
+    let cr_off = 1 << 12;
+    unsafe {
         asm!(
         "mrc p15, 0, {t}, c1, c0, 0",
         "orr {t}, {t}, {cr_on}",
@@ -44,56 +94,24 @@ pub unsafe fn __set_mmu_enabled_features(config: MMUEnabledFeaturesConfig) {
         cr_off = in(reg) !cr_off,
         );
     }
-}
-
-#[inline(never)]
-pub unsafe fn __init_mmu(ttb_ptr: *mut u32) {
-    // TTB
-    __init_mmu_translation_table(ttb_ptr);
-    // DAC, PRRR, NMRR
-    __init_mmu_tex_remap();
-
-    // translation table base register 0
-    let ttb0 = (ttb_ptr as usize as u32) | 0b01001;
-    asm!(
-    "mcr p15, 0, {t}, c2, c0, 0",
-    t = in(reg) ttb0,
-    );
-
-    // translation table base control register
-    let ttbcr = 0b100000;
-    asm!(
-    "mcr p15, 0, {t}, c2, c0, 2",
-    t = in(reg) ttbcr,
-    );
-
-    // XP=1 (use ARMv6 page tables)
-    let cr_on = 1 << 23;
-    // I=0 (disable icache)
-    let cr_off = 1 << 12;
-    asm!(
-    "mrc p15, 0, {t}, c1, c0, 0",
-    "orr {t}, {t}, {cr_on}",
-    "and {t}, {t}, {cr_off}",
-    "mcr p15, 0, {t}, c1, c0, 0",
-    t = out(reg) _,
-    cr_on = in(reg) cr_on,
-    cr_off = in(reg) !cr_off,
-    );
 
     // invalidate entire icache, and flush branch target cache, and globally flush BTAC
-    asm!(
-    "mcr p15, 0, {t}, c7, c5, 0",
-    t = in(reg) 0,
-    );
+    unsafe {
+        asm!(
+        "mcr p15, 0, {t}, c7, c5, 0",
+        t = in(reg) 0,
+        );
+    }
 
     // enable MMU
-    asm!(
-    "mrc p15, 0, {t}, c1, c0, 0",
-    "orr {t}, {t}, #1",
-    "mcr p15, 0, {t}, c1, c0, 0",
-    t = out(reg) _,
-    )
+    unsafe {
+        asm!(
+        "mrc p15, 0, {t}, c1, c0, 0",
+        "orr {t}, {t}, #1",
+        "mcr p15, 0, {t}, c1, c0, 0",
+        t = out(reg) _,
+        )
+    }
 }
 
 pub unsafe fn __init_mmu_translation_table(ttb_ptr: *mut u32) {
@@ -106,7 +124,7 @@ pub unsafe fn __init_mmu_translation_table(ttb_ptr: *mut u32) {
     // a full TTB is 16KB, so 4K entries, each entry represents 1MB
     // initially, we map:
     for ttei in 0..0x1000 {
-        ttb_ptr.offset(ttei).write_volatile(0);
+        unsafe { ttb_ptr.offset(ttei).write_volatile(0) };
     }
     // uart1_sendln_bl!("ttb_ptr={ttb_ptr:p}");
     fn tt_supersection(index: u32, tex: u32, c: u32, b: u32) -> u32 {
@@ -134,7 +152,7 @@ pub unsafe fn __init_mmu_translation_table(ttb_ptr: *mut u32) {
     for si in 0..512 {
         let ttei = 0x000 + si;
         let ssi = ((si + 0) >> 4) as u32;
-        let entry_ptr = ttb_ptr.offset(ttei);
+        let entry_ptr = unsafe { ttb_ptr.offset(ttei) };
         // BB=11, write back, no allocate on write
         // AA=11, write back, no allocate on write
         // let val = tt_supersection(ssi, 0b111, 1, 1); // <-- with TEX Remap OFF
@@ -142,16 +160,16 @@ pub unsafe fn __init_mmu_translation_table(ttb_ptr: *mut u32) {
         // restore to: 0b001, 0, 1
         let val = tt_supersection(ssi, 0b001, 0, 0);
         // uart1_sendln_bl!("BLK1 writing {val:08x} to {entry_ptr:p}");
-        entry_ptr.write_volatile(val);
+        unsafe { entry_ptr.write_volatile(val) };
     }
     //  2000_0000..2100_0000 to 2000_0000..2100_0000 (16)
     for si in 0..16 {
         let ttei = 0x200 + si;
         let ssi = ((si + 512) >> 4) as u32;
-        let entry_ptr = ttb_ptr.offset(ttei);
+        let entry_ptr = unsafe { ttb_ptr.offset(ttei) };
         let val = tt_supersection(ssi, 0b000, 0, 1);
         // uart1_sendln_bl!("DEV writing {val:08x} to {entry_ptr:p}");
-        entry_ptr.write_volatile(val);
+        unsafe { entry_ptr.write_volatile(val) };
     }
 }
 
@@ -203,17 +221,21 @@ pub unsafe fn __init_mmu_tex_remap() {
     //  1 -> 01 // client
     //  2 -> 00 // fault
     let dac = 0x0000_0007;
-    asm!(
-    "mcr p15, 0, {t}, c3, c0, 0",
-    t = in(reg) dac
-    );
+    unsafe {
+        asm!(
+        "mcr p15, 0, {t}, c3, c0, 0",
+        t = in(reg) dac
+        );
+    }
 
     // CR.TR = 1 (enable TEX Remap)
-    asm!(
-    "mrc p15, 0, {t}, c1, c0, 0",
-    "orr {t}, {t}, {cr_on}",
-    "mcr p15, 0, {t}, c1, c0, 0",
-    t = out(reg) _,
-    cr_on = in(reg) { 1 << 28 },
-    );
+    unsafe {
+        asm!(
+        "mrc p15, 0, {t}, c1, c0, 0",
+        "orr {t}, {t}, {cr_on}",
+        "mcr p15, 0, {t}, c1, c0, 0",
+        t = out(reg) _,
+        cr_on = in(reg) { 1 << 28 },
+        );
+    }
 }

@@ -4,21 +4,21 @@
 #![feature(pointer_is_aligned_to)]
 #![no_std]
 
-use crate::arch::mini_uart;
-use crate::arch::timing::delay_millis;
 use crate::legacy::fmt::BOOT_UMSG_BUF;
 use bcm2835_lpa::Peripherals;
 use core::cell::UnsafeCell;
 use core::panic::PanicInfo;
 use okboot_common::INITIAL_BAUD_RATE;
+use quartz::device::bcm2835::mini_uart;
+use quartz::device::bcm2835::timing::delay_millis;
 
-pub mod arch;
+// pub mod arch;
 mod buf;
 pub mod legacy;
 mod protocol;
 mod stub;
-#[allow(dead_code)]
-mod sync;
+// #[allow(dead_code)]
+// mod sync;
 pub mod timeouts;
 
 #[repr(C, align(0x4000))]
@@ -26,7 +26,7 @@ pub struct TTBRegion(UnsafeCell<[u8; 0x4000]>);
 unsafe impl Sync for TTBRegion {}
 pub static TTB_REGION: TTBRegion = TTBRegion(UnsafeCell::new([0; 0x4000]));
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __symbol_kstart() -> ! {
     // NOTE: It seems to be impractical/impossible to zero out the BSS in life-after-main, so we
     //       now do it in life-before-main (specifically, in _start in boot.S).
@@ -34,6 +34,7 @@ pub extern "C" fn __symbol_kstart() -> ! {
     // because there is no way to get a pointer with provenance for the whole BSS section.
 
     let peripherals = unsafe { Peripherals::steal() };
+
     const _: () = {
         assert!(
             INITIAL_BAUD_RATE == 115200,
@@ -52,14 +53,14 @@ pub extern "C" fn __symbol_kstart() -> ! {
     legacy_print_string_blocking!(&peripherals.UART1, "initializing MMU\n");
 
     unsafe {
-        arch::arm1176::mmu::__init_mmu((*TTB_REGION.0.get()).as_mut_ptr().cast());
+        quartz::arch::arm1176::mmu::__init_mmu((*TTB_REGION.0.get()).as_mut_ptr().cast());
     }
 
     legacy_print_string_blocking!(&peripherals.UART1, "finished initializing MMU\n");
 
     unsafe {
-        arch::arm1176::mmu::__set_mmu_enabled_features(
-            arch::arm1176::mmu::MMUEnabledFeaturesConfig {
+        quartz::arch::arm1176::mmu::__set_mmu_enabled_features(
+            quartz::arch::arm1176::mmu::MMUEnabledFeaturesConfig {
                 dcache: Some(false),
                 icache: Some(false),
                 brpdx: Some(true),
@@ -68,8 +69,8 @@ pub extern "C" fn __symbol_kstart() -> ! {
     }
     legacy_print_string_blocking!(&peripherals.UART1, "MMU: -dcache -icache +brpdx\n");
     unsafe {
-        arch::arm1176::mmu::__set_mmu_enabled_features(
-            arch::arm1176::mmu::MMUEnabledFeaturesConfig {
+        quartz::arch::arm1176::mmu::__set_mmu_enabled_features(
+            quartz::arch::arm1176::mmu::MMUEnabledFeaturesConfig {
                 dcache: Some(true),
                 icache: Some(true),
                 brpdx: Some(true),
@@ -85,7 +86,7 @@ pub extern "C" fn __symbol_kstart() -> ! {
     __symbol_kreboot()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __symbol_kreboot() -> ! {
     loop {}
 }

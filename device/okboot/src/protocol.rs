@@ -1,10 +1,6 @@
 mod handshake;
 mod v2;
 
-use crate::arch::arm1176::__dsb;
-use crate::arch::mini_uart::mini_uart1_flush_tx;
-use crate::arch::timing;
-use crate::arch::timing::Instant;
 use crate::buf::{FrameSink, ReceiveBuffer, TransmitBuffer};
 use crate::{legacy_print_string, legacy_print_string_blocking, timeouts};
 use bcm2835_lpa::{Peripherals, SYSTMR, UART1};
@@ -13,6 +9,9 @@ use core::cell::UnsafeCell;
 use core::time::Duration;
 use okboot_common::frame::{BufferedEncoder, FrameError, FrameHeader, FrameLayer, FrameOutput};
 use okboot_common::{COBS_XOR, INITIAL_BAUD_RATE};
+use quartz::arch::arm1176::__dsb;
+use quartz::device::bcm2835::mini_uart::mini_uart1_flush_tx;
+use quartz::device::bcm2835::timing::{self, Instant};
 use thiserror::Error;
 
 use handshake::Handshake;
@@ -362,14 +361,14 @@ impl<const TX: usize, const RX: usize, const PX: usize, const IX: usize>
     unsafe fn get(&self) -> AllocatedBuffers {
         // SAFETY:
         unsafe fn materialize<const N: usize>(b: &UnsafeCell<[u8; N]>) -> &'static mut [u8] {
-            (*b.get()).as_mut_slice()
+            unsafe { (*b.get()).as_mut_slice() }
         }
         AllocatedBuffers {
-            receive_buffer: materialize(&self.receive),
-            transmit_buffer: materialize(&self.transmit),
-            staging_buffer: materialize(&self.staging),
-            cobs_encode_buffer: materialize(&self.cobs),
-            inflate_buffer: materialize(&self.inflate),
+            receive_buffer: unsafe { materialize(&self.receive) },
+            transmit_buffer: unsafe { materialize(&self.transmit) },
+            staging_buffer: unsafe { materialize(&self.staging) },
+            cobs_encode_buffer: unsafe { materialize(&self.cobs) },
+            inflate_buffer: unsafe { materialize(&self.inflate) },
         }
     }
 }

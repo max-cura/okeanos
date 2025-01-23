@@ -97,7 +97,7 @@ unsafe impl RawMutex for RawTicketLock {
 
 unsafe impl RawMutexFair for RawTicketLock {
     unsafe fn unlock_fair(&self) {
-        self.unlock()
+        unsafe { self.unlock() }
     }
 }
 

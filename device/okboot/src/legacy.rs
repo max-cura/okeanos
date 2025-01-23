@@ -2,9 +2,9 @@ pub(crate) mod fmt;
 mod staging;
 pub mod uart1;
 
-use crate::arch::arm1176::__dsb;
 use crate::legacy_print_string_blocking;
 use bcm2835_lpa::UART1;
+use quartz::arch::arm1176::__dsb;
 
 const GET_CODE: u32 = okboot_common::su_boot::Command::GetCode as u32;
 const BOOT_SUCCESS: u32 = okboot_common::su_boot::Command::BootSuccess as u32;
@@ -16,8 +16,14 @@ pub fn perform_download(uart: &UART1) {
     let len = uart1::uart1_read32_blocking(uart);
     let crc = uart1::uart1_read32_blocking(uart);
 
-    legacy_print_string_blocking!(uart, "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode.");
-    legacy_print_string_blocking!(uart, "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}");
+    legacy_print_string_blocking!(
+        uart,
+        "[theseus-device]: host is not THESEUS-compatible; switching to legacy SU-BOOT compatibility mode."
+    );
+    legacy_print_string_blocking!(
+        uart,
+        "[theseus-device]: received PUT_PROGRAM_INFO: addr={addr:#010x} len={len} crc32={crc:#010x}"
+    );
 
     // TODO: where exactly does the stack start again???
     // stack starts at 0x8000 and goes downwards, so assume [0..&__theseus_prog_end__] is all theseus-device
@@ -91,8 +97,6 @@ pub fn perform_download(uart: &UART1) {
         }
     }
 
-    #[no_mangle]
-    #[inline(never)]
     fn write_bytes_from_uart(uart: &UART1, n_bytes: usize, to_addr: *mut u8) {
         __dsb();
         let mut i = 0;
@@ -164,5 +168,5 @@ unsafe fn relocate_stub(params: staging::RelocationParams) -> ! {
     fn f(uart: &UART1) {
         uart1::uart1_write32(uart, BOOT_SUCCESS);
     }
-    staging::relocate_stub_inner(params, f)
+    unsafe { staging::relocate_stub_inner(params, f) }
 }

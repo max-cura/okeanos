@@ -2,6 +2,7 @@ use super::uart1;
 use crate::legacy_print_string_blocking;
 use crate::stub::{__symbol_exec_end__, __symbol_relocation_stub, __symbol_relocation_stub_end};
 use bcm2835_lpa::UART1;
+use quartz::arch::arm1176::PAGE_SIZE;
 
 #[derive(Debug, Copy, Clone)]
 pub struct RelocationConfig {
@@ -23,8 +24,6 @@ impl RelocationConfig {
         }
     }
 }
-
-const PAGE_SIZE: usize = 0x4000;
 
 #[allow(unused)]
 pub fn calculate(load_at_addr: usize, length: usize) -> RelocationConfig {
@@ -159,7 +158,7 @@ pub unsafe fn relocate_stub_inner<F: FnOnce(&UART1)>(params: RelocationParams, f
     let stub_begin = core::ptr::addr_of!(__symbol_relocation_stub);
     let stub_end = core::ptr::addr_of!(__symbol_relocation_stub_end);
 
-    let stub_len = stub_end.byte_offset_from(stub_begin) as usize;
+    let stub_len = unsafe { stub_end.byte_offset_from(stub_begin) as usize };
 
     legacy_print_string_blocking!(uart, "[theseus-device]: relocation_stub parameters:");
     legacy_print_string_blocking!(uart, "\tstub_dst={stub_dst:#?}");
@@ -170,7 +169,9 @@ pub unsafe fn relocate_stub_inner<F: FnOnce(&UART1)>(params: RelocationParams, f
     legacy_print_string_blocking!(uart, "\tprog_len={prog_len} bytes");
     legacy_print_string_blocking!(uart, "\tentry={entry:#?}");
 
-    core::ptr::copy(stub_begin as *const u8, stub_dst, stub_len);
+    unsafe {
+        core::ptr::copy(stub_begin as *const u8, stub_dst, stub_len);
+    }
 
     legacy_print_string_blocking!(
         uart,
@@ -185,7 +186,8 @@ pub unsafe fn relocate_stub_inner<F: FnOnce(&UART1)>(params: RelocationParams, f
 
     uart1::uart1_flush_tx(uart);
 
-    core::arch::asm!(
+    unsafe {
+        core::arch::asm!(
         // "sev",
         "bx {t0}",
         in("r0") prog_dst,
@@ -194,7 +196,8 @@ pub unsafe fn relocate_stub_inner<F: FnOnce(&UART1)>(params: RelocationParams, f
         in("r3") entry,
         t0 = in(reg) stub_dst,
         options(noreturn),
-    )
+        )
+    }
 
     // boot_umsg!(uart, "[theseus-device]: ... well we should have jumped into the stub; I'm not really sure what just happened.");
     // boot_umsg!(uart, "[theseus-device]: bad program state, entering infinite loop");

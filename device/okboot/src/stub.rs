@@ -21,10 +21,10 @@ pub unsafe fn locate_end() -> *const [u8; 0] {
 }
 
 pub mod flat_binary {
-    use crate::arch::arm1176::PAGE_SIZE;
     use crate::buf::FrameSink;
     use crate::stub::{__symbol_relocation_stub, __symbol_relocation_stub_end};
     use bcm2835_lpa::Peripherals;
+    use quartz::arch::arm1176::PAGE_SIZE;
 
     #[derive(Clone, Debug)]
     pub struct Relocation {
@@ -150,7 +150,7 @@ pub mod flat_binary {
         let stub_begin = &raw const __symbol_relocation_stub;
         let stub_end = &raw const __symbol_relocation_stub_end;
 
-        let stub_len = stub_end.byte_offset_from(stub_begin) as usize;
+        let stub_len = unsafe { stub_end.byte_offset_from(stub_begin) as usize };
 
         crate::legacy_print_string_blocking!(
             &peripherals.UART1,
@@ -167,7 +167,9 @@ pub mod flat_binary {
         crate::legacy_print_string_blocking!(&peripherals.UART1, "\tcopy bytes={kernel_copy_len}");
         crate::legacy_print_string_blocking!(&peripherals.UART1, "\tentry={kernel_entry:#?}");
 
-        core::ptr::copy(stub_begin as *const u8, stub_dst, stub_len);
+        unsafe {
+            core::ptr::copy(stub_begin as *const u8, stub_dst, stub_len);
+        }
 
         crate::legacy_print_string_blocking!(
             &peripherals.UART1,
@@ -177,7 +179,8 @@ pub mod flat_binary {
         crate::protocol::flush_to_fifo(fs, &peripherals.UART1);
         crate::mini_uart::mini_uart1_flush_tx(&peripherals.UART1);
 
-        core::arch::asm!(
+        unsafe {
+            core::arch::asm!(
             "bx {t0}",
             in("r0") kernel_dst,
             in("r1") kernel_src,
@@ -185,6 +188,7 @@ pub mod flat_binary {
             in("r3") kernel_entry,
             t0 = in(reg) stub_dst,
             options(noreturn),
-        )
+            )
+        }
     }
 }

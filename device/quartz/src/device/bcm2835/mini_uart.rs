@@ -1,4 +1,4 @@
-use super::arm1176::__dsb;
+use crate::arch::arm1176::__dsb;
 use bcm2835_lpa::{AUX, GPIO, UART1};
 
 const MINI_UART_CLOCK_RATE: u32 = 250_000_000;

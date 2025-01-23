@@ -1,4 +1,3 @@
-use crate::arch::timing::Instant;
 use crate::buf::{FrameSink, SendError};
 use crate::protocol::{ProtocolStatus, Timeouts};
 use crate::rpc_println;
@@ -11,6 +10,7 @@ use miniz_oxide::{DataFormat, MZError, MZFlush, MZStatus};
 use okboot_common::frame::FrameHeader;
 use okboot_common::host::{Chunk, FormatDetails, Metadata};
 use okboot_common::{device, host, MessageType};
+use quartz::device::bcm2835::timing::Instant;
 use thiserror::Error;
 
 const CHUNK_SIZE: usize = 0x1000;

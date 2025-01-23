@@ -1,4 +1,3 @@
-use crate::arch::mini_uart::baud_to_clock_divider;
 use crate::buf::FrameSink;
 use crate::legacy_print_string;
 use crate::protocol::{Protocol, ProtocolEnum, ProtocolStatus, Timeouts};
@@ -7,6 +6,7 @@ use okboot_common::device::AllowedVersions;
 use okboot_common::frame::FrameHeader;
 use okboot_common::host::UseVersion;
 use okboot_common::{MessageType, SupportedProtocol};
+use quartz::device::bcm2835::mini_uart::baud_to_clock_divider;
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[u32] = &[okboot_common::SupportedProtocol::V2 as u32];
 
@@ -124,7 +124,7 @@ impl Protocol for Handshake {
                     new_clock_divider
                 );
 
-                crate::arch::timing::delay_millis(&peripherals.SYSTMR, 50);
+                quartz::device::bcm2835::timing::delay_millis(&peripherals.SYSTMR, 50);
                 crate::rpc_println!(
                     frame_sink,
                     "[device:v{}]: transitioned baud rate!",

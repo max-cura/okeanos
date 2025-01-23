@@ -1,14 +1,13 @@
 [package]
 name = "okboot"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [lib]
 crate-type = ["staticlib"]
 
 [dependencies]
 bcm2835-lpa = { version = "0.4.0", features = [] }
-tock-registers = { version = "0.9.0", features = ["register_types"] }
 
 crc32fast = { version = "1.4.0", default-features = false, features = ["nightly"] }
 thiserror = { version = "1.0", package = "thiserror-core", default-features = false }
@@ -24,3 +23,5 @@ serde = { version = "1.0.217", default-features = false }
 
 enum_dispatch = "0.3.13"
 lock_api = "0.4.12"
+
+quartz = { path = "../quartz" }

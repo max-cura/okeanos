@@ -17,10 +17,11 @@ __symbol_exec_end__
 
 SECTIONS {
     ENTRY(_start)
-    .text 0x20000 : {
+    .text 0x8000 : {
         __symbol_exec_start__ = .;
         __symbol_code_start__ = .;
         KEEP(*(.text.boot))
+        KEEP(*(.text.int))
         *(.text*)
         __symbol_code_end__ = .;
         . = ALIGN(8);
@@ -49,6 +50,12 @@ SECTIONS {
         *(COMMON)
         . = ALIGN(8);
         __symbol_bss_end__ = .;
+    }
+    .stack : {
+        . = ALIGN(8);
+        __symbol_stack_begin__ = .;
+        . = . + 0x20000;
+        __symbol_stack_end__ = .;
         . = ALIGN(8);
         __symbol_exec_end__ = .;
     }
