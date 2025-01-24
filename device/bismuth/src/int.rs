@@ -28,9 +28,19 @@ pub extern "C" fn _interrupt_svc(r0: u32, r1: u32, r2: u32, swi_immed: u32, r3: 
         "_interrupt_svc({swi_immed:08x}) r0={r0:08x} r1={r1:08x} r2={r2:08x} r3={r3:08x}"
     );
 }
-pub static X: UnsafeSync<UnsafeCell<(u32, u32, u32)>> = UnsafeSync(UnsafeCell::new((0, 0, 0)));
+// pub static X: UnsafeSync<UnsafeCell<(u32, u32, u32)>> = UnsafeSync(UnsafeCell::new((0, 0, 0)));
+pub struct HotTable {
+    pub addrs: [u32; 0x20000],
+    pub next: usize,
+    // count: [u32; 0x20000],
+}
+pub static TABLE: UnsafeSync<UnsafeCell<HotTable>> = UnsafeSync(UnsafeCell::new(HotTable {
+    addrs: [0; 0x20000],
+    next: 0,
+    // count: [0; 0x20000],
+}));
 #[unsafe(no_mangle)]
-pub extern "C" fn _interrupt_irq() {
+pub extern "C" fn _interrupt_irq(interrupted: u32) {
     let peri = unsafe { Peripherals::steal() };
     // uart1_println!(&peri.UART1, "irq");
     __dsb();
@@ -43,22 +53,34 @@ pub extern "C" fn _interrupt_irq() {
         unsafe {
             tim_irq_clr.write_volatile(1);
         }
-        let tv = unsafe { tim_val.read_volatile() };
+        let _tv = unsafe { tim_val.read_volatile() };
         __dsb();
-        uart1_println!(
-            &peri.UART1,
-            "irq: timer_pending at {} / {}",
-            quartz::device::bcm2835::timing::__floating_time(&peri.SYSTMR),
-            tv
-        );
-        let now = __floating_time(&peri.SYSTMR);
+        let addrs = unsafe { (&*TABLE.0.get()).addrs.as_ptr().cast_mut() };
+        let next = unsafe { &raw const (&*TABLE.0.get()).next }.cast_mut();
+        // let count = unsafe { (&*TABLE.0.get()).count.as_mut_ptr() };
+        let shadow: *mut u32 = (interrupted as usize | 0x1000_0000) as *mut u32;
+        let v0 = unsafe { shadow.read_volatile() };
+        unsafe { shadow.write_volatile(v0 + 1) };
+        if v0 == 0 {
+            let next_slot = unsafe { next.read_volatile() };
+            unsafe { addrs.offset(next_slot as isize).write_volatile(interrupted) };
+            unsafe { next.write_volatile(next_slot + 1) };
+        };
         __dsb();
-        let (c, s, lc) = unsafe { X.0.get().read_volatile() };
-        let p = if lc != 0 { now as u32 - lc } else { 0 };
-        unsafe {
-            X.0.get().write_volatile((c + 1, s + p, now as u32));
-        }
-        __dsb();
+        // uart1_println!(
+        //     &peri.UART1,
+        //     "irq: timer_pending at {} / {}",
+        //     quartz::device::bcm2835::timing::__floating_time(&peri.SYSTMR),
+        //     tv
+        // );
+        // let now = __floating_time(&peri.SYSTMR);
+        // __dsb();
+        // let (c, s, lc) = unsafe { X.0.get().read_volatile() };
+        // let p = if lc != 0 { now as u32 - lc } else { 0 };
+        // unsafe {
+        //     X.0.get().write_volatile((c + 1, s + p, now as u32));
+        // }
+        // __dsb();
     }
 }
 
@@ -141,11 +163,12 @@ unsafe fn install_jumptable_at(ptr: *mut [u32; 8]) -> Result<(), InterruptError>
 
     unsafe {
         let peri = unsafe { Peripherals::steal() };
+        ptr.write_volatile(encodings);
         uart1_println!(
             &peri.UART1,
-            "installing encodings: {encodings:08x?} to {ptr:08x?}"
+            "installed encodings: {:08x?} to {ptr:08x?}",
+            ptr.read_volatile()
         );
-        ptr.write_volatile(encodings);
     }
 
     Ok(())

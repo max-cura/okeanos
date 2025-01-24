@@ -49,6 +49,7 @@ _landing_pad_svc:
     mvn lr, #(0xff << 24)
     and r3, r3, lr
     bl _interrupt_svc
+    add sp, sp, #4
     rfeia sp!
 
 _landing_pad_smc:
@@ -66,6 +67,11 @@ _landing_pad_undef:
 _landing_pad_pabt:
     srsdb #ABO
     push {r0-r12}
+
+    ldr r0, =0x20200000
+    mov r1, #(1 << 27)
+    str r1, [r0, #0x1c]
+
     nop
     pop {r0-r12}
     rfeia sp!
@@ -83,7 +89,10 @@ _landing_pad_irq:
     stmfd sp!,{r0-r12, lr}
     mrs r0, spsr
     stmfd sp!,{r0}
+
+    sub r0, lr, #4
     bl _interrupt_irq
+
     ldmia sp!,{r0}
     msr spsr, r0
     ldmia sp!,{r0-r12, pc}^
@@ -91,6 +100,11 @@ _landing_pad_irq:
 _landing_pad_dabt:
     srsdb #ABO
     push {r0-r12}
+
+    ldr r0, =0x20200000
+    mov r1, #(1 << 27)
+    str r1, [r0, #0x1c]
+
     nop
     pop {r0-r12}
     rfeia sp!

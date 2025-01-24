@@ -1,3 +1,4 @@
+use crate::arch::arm1176::__dsb;
 use core::arch::asm;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -47,6 +48,34 @@ pub unsafe fn __set_mmu_enabled_features(config: MMUEnabledFeaturesConfig) {
             );
         }
     }
+}
+
+#[inline(never)]
+pub unsafe fn __disable_mmu() {
+    // Clear bit 2 to 0 in the CP15 Control Register c1 of the corresponding world, to disable the
+    // Data Cache. You must disable the Data Cache in the corresponding world before, or at the
+    // same time as, disabling the MMU.
+    // Note
+    // If the MMU is enabled, then disabled, and subsequently re-enabled in the same world, the
+    // contents of the TLBs for this world are preserved. If these are now invalid, you must
+    // invalidate the TLBs in the corresponding world before you re-enable the MMU, see c8,
+    // TLB Operations Register on page 3-86.
+    // 2. Clear bit 0 to 0 in the CP15 Control Register c1 of the corresponding world.
+    __dsb();
+    // disable dcache
+    unsafe {
+        asm!("mrc p15, 0, {t}, c1, c0, 0", "and {t}, {t}, {off}", "mcr p15, 0, {t}, c1, c0, 0",
+        t = out(reg) _,
+        off = in(reg) !4,
+        );
+    }
+    unsafe {
+        asm!("mrc p15, 0, {t}, c1, c0, 0", "and {t}, {t}, {off}", "mcr p15, 0, {t}, c1, c0, 0",
+        t = out(reg) _,
+        off = in(reg) !1,
+        );
+    }
+    __dsb();
 }
 
 #[inline(never)]

@@ -6,7 +6,7 @@ members = [
     "device/bismuth",
     "device/okboot",
     "device/quartz",
-    "host/okdude",
+    "host/okdude", "host/sim",
     #    "tock/libraries/tock-register-interface",
     #    "tock/libraries/tock-register-interface/derive"
 ]

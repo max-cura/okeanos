@@ -21,11 +21,6 @@ mod stub;
 // mod sync;
 pub mod timeouts;
 
-#[repr(C, align(0x4000))]
-pub struct TTBRegion(UnsafeCell<[u8; 0x4000]>);
-unsafe impl Sync for TTBRegion {}
-pub static TTB_REGION: TTBRegion = TTBRegion(UnsafeCell::new([0; 0x4000]));
-
 #[unsafe(no_mangle)]
 pub extern "C" fn __symbol_kstart() -> ! {
     // NOTE: It seems to be impractical/impossible to zero out the BSS in life-after-main, so we
@@ -53,6 +48,10 @@ pub extern "C" fn __symbol_kstart() -> ! {
     legacy_print_string_blocking!(&peripherals.UART1, "initializing MMU\n");
 
     unsafe {
+        #[repr(C, align(0x4000))]
+        pub struct TTBRegion(UnsafeCell<[u8; 0x4000]>);
+        unsafe impl Sync for TTBRegion {}
+        pub static TTB_REGION: TTBRegion = TTBRegion(UnsafeCell::new([0; 0x4000]));
         quartz::arch::arm1176::mmu::__init_mmu((*TTB_REGION.0.get()).as_mut_ptr().cast());
     }
 
@@ -82,6 +81,8 @@ pub extern "C" fn __symbol_kstart() -> ! {
     protocol::run(&peripherals);
 
     legacy_print_string_blocking!(&peripherals.UART1, "protocol failure; restarting");
+
+    peripherals.GPIO.gpfsel0().modify(|_, w| w.fsel0().output());
 
     __symbol_kreboot()
 }

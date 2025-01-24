@@ -25,6 +25,7 @@ pub mod flat_binary {
     use crate::stub::{__symbol_relocation_stub, __symbol_relocation_stub_end};
     use bcm2835_lpa::Peripherals;
     use quartz::arch::arm1176::PAGE_SIZE;
+    use quartz::arch::arm1176::mmu::__disable_mmu;
 
     #[derive(Clone, Debug)]
     pub struct Relocation {
@@ -178,6 +179,8 @@ pub mod flat_binary {
 
         crate::protocol::flush_to_fifo(fs, &peripherals.UART1);
         crate::mini_uart::mini_uart1_flush_tx(&peripherals.UART1);
+
+        unsafe { __disable_mmu() };
 
         unsafe {
             core::arch::asm!(
