@@ -7,3 +7,4 @@ build
 *.elf
 *.list
 *.o
+doc
