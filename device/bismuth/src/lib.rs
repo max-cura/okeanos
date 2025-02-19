@@ -2,34 +2,71 @@
 #![feature(core_intrinsics)]
 #![feature(pointer_is_aligned_to)]
 #![feature(array_try_map)]
+#![feature(vec_into_raw_parts)]
+#![feature(box_vec_non_null)]
+#![feature(thread_local)]
+#![feature(box_into_inner)]
+#![feature(slice_ptr_get)]
+#![feature(ptr_as_ref_unchecked)]
+#![feature(box_as_ptr)]
 #![no_std]
 
+extern crate alloc;
+
+#[global_allocator]
+static HEAP: embedded_alloc::TlsfHeap = embedded_alloc::TlsfHeap::empty();
+
+mod app;
+mod exceptions;
 pub mod fmt;
-mod gpio;
 pub mod int;
+pub mod thread;
 
 use crate::fmt::Uart1WriteProxy;
-use crate::int::{OperatingMode, TABLE};
 use bcm2835_lpa::Peripherals;
-use core::arch::asm;
 use core::cell::UnsafeCell;
 use core::panic::PanicInfo;
+use critical_section::RawRestoreState;
+use lock_api::RawMutex;
 use quartz::arch::arm1176::__dsb;
+use quartz::arch::arm1176::sync::ticket::RawTicketLock;
 use quartz::device::bcm2835::mini_uart;
-use quartz::device::bcm2835::timing::delay_millis;
 
-#[derive(Debug, Copy, Clone)]
-#[repr(C, align(32))]
-struct AlignedJumpTable {
-    inner: [u32; 8],
+#[macro_export]
+macro_rules! steal_println {
+    ($($e:tt)*) => {
+        let peri = unsafe{::bcm2835_lpa::Peripherals::steal()};
+        $crate::uart1_println!(&peri.UART1, $($e)*)
+    };
 }
-#[derive(Debug, Copy, Clone)]
-#[repr(transparent)]
-struct UnsafeSync<T>(T);
-unsafe impl<T> Sync for UnsafeSync<T> {}
+
 #[unsafe(no_mangle)]
-static JUMP_TABLE: UnsafeSync<UnsafeCell<AlignedJumpTable>> =
-    UnsafeSync(UnsafeCell::new(AlignedJumpTable { inner: [0; 8] }));
+pub extern "C" fn __aeabi_unwind_cpp_pr0() {}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _interrupt_svc(r0: u32, r1: u32, r2: u32, swi_immed: u32, r3: u32) {
+    let peri = unsafe { Peripherals::steal() };
+    uart1_println!(
+        &peri.UART1,
+        "_interrupt_svc({swi_immed:08x}) r0={r0:08x} r1={r1:08x} r2={r2:08x} r3={r3:08x}"
+    );
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn _interrupt_irq() {
+    let peri = unsafe { Peripherals::steal() };
+    __dsb();
+    let timer_pending = peri.LIC.basic_pending().read().timer().bit_is_set();
+    __dsb();
+    if timer_pending {
+        let _tim_val = 0x2000b404 as *mut u32;
+        let tim_irq_clr = 0x2000b40c as *mut u32;
+        __dsb();
+        unsafe {
+            tim_irq_clr.write_volatile(1);
+        }
+        __dsb();
+    }
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __symbol_kstart() -> ! {
@@ -44,157 +81,28 @@ pub extern "C" fn __symbol_kstart() -> ! {
             .gpclr0()
             .write_with_zero(|w| w.bits(0xffff_ffff));
     }
-    quartz::device::bcm2835::mini_uart::muart1_init(
-        &peripherals.GPIO,
-        &peripherals.AUX,
-        &peripherals.UART1,
-        270,
-    );
+    mini_uart::muart1_init(&peripherals.GPIO, &peripherals.AUX, &peripherals.UART1, 270);
     quartz::device::bcm2835::timing::delay_millis(&peripherals.SYSTMR, 100);
 
-    uart1_println!(&peripherals.UART1, "initializing MMU\n");
+    uart1_println!(&peripherals.UART1, "[bis] finished initializing UART1");
 
     unsafe {
         #[repr(C, align(0x4000))]
         pub struct TTBRegion(UnsafeCell<[u8; 0x4000]>);
         unsafe impl Sync for TTBRegion {}
         pub static TTB_REGION: TTBRegion = TTBRegion(UnsafeCell::new([0; 0x4000]));
-        // quartz::arch::arm1176::mmu::__init_mmu((*TTB_REGION.0.get()).as_mut_ptr().cast());
+        quartz::arch::arm1176::mmu::__init_mmu((*TTB_REGION.0.get()).as_mut_ptr().cast());
     }
 
-    uart1_println!(&peripherals.UART1, "finished initializing MMU\n");
+    uart1_println!(&peripherals.UART1, "[bis] finished initializing MMU");
 
-    uart1_println!(&peripherals.UART1, "[bis] starting");
+    unsafe { HEAP.init(0x1000_0000, 0x1000_0000) };
 
-    if let Err(e) = unsafe { int::install_interrupts(JUMP_TABLE.0.get().cast()) } {
-        uart1_println!(
-            &peripherals.UART1,
-            "[bis] failed to install interrupt vector: {e:?}"
-        );
-        __symbol_kreboot();
-    }
+    uart1_println!(&peripherals.UART1, "[bis] finished initializing HEAP");
 
-    uart1_println!(&peripherals.UART1, "[bis] installed interrupt vector");
+    app::debug::run();
 
-    unsafe {
-        int::init_stack_for_mode(OperatingMode::System, 0x0c00_0000);
-    }
-    uart1_println!(&peripherals.UART1, "[bis] installed stack for mode: SYSTEM");
-    unsafe {
-        core::arch::asm!("cps #0b10000");
-    }
-    uart1_println!(&peripherals.UART1, "[bis] about to SWI");
-    let mut addr: u32;
-    unsafe {
-        core::arch::asm!("mov {t0}, pc", t0 = out(reg) addr);
-    }
-    uart1_println!(&peripherals.UART1, "[bis] pre-SWI address is {addr:08x}");
-    __dsb();
-    unsafe {
-        // now in user mode
-        core::arch::asm!(
-            "swi #0x666",
-            inout("r0") 0x1111 => _,
-            inout("r1") 0x2222 => _,
-            inout("r2") 0x3333 => _,
-            inout("r3") 0x4444 => _,
-        );
-    }
-    uart1_println!(&peripherals.UART1, "[bis] returned from SWI");
-
-    // __dsb();
-    // // unsafe { asm!("wfe") };
-    // let mut i: usize = 0x1000_0000;
-    // while i < 0x2000_0000 {
-    //     if i % 0x100_0000 == 0 {
-    //         uart1_println!(&peripherals.UART1, "[bis] i={i:08x}");
-    //     }
-    //     unsafe {
-    //         // core::ptr::with_exposed_provenance_mut::<u32>(i).write_volatile(0);
-    //         // (i as *mut u32).write_volatile(0);
-    //         asm!(
-    //             "str {z}, [{a}], #4",
-    //             a = inout(reg) i,
-    //             z = in(reg) 0,
-    //         );
-    //     }
-    //     // if i % 0x1000 == 0 {
-    //     //     uart1_println!(&peripherals.UART1, "[bis] i={i:08x}");
-    //     // }
-    //     // i += 4;
-    // }
-    // // unsafe { asm!("wfe") };
-    // __dsb();
-    //
-    // let tim_val = 0x2000b404 as *mut u32;
-    // uart1_println!(&peripherals.UART1, "[bis] enabling timer");
-    // unsafe {
-    //     int::init_stack_for_mode(OperatingMode::IRQ, 0x0d00_0000);
-    //
-    //     __dsb();
-    //     peripherals.LIC.disable_1().write(|w| w.bits(0xffff_ffff));
-    //     peripherals.LIC.disable_2().write(|w| w.bits(0xffff_ffff));
-    //     // peripherals
-    //     //     .LIC
-    //     //     .disable_basic()
-    //     //     .write(|w| w.bits(0xffff_ffff));
-    //     __dsb();
-    //     peripherals
-    //         .LIC
-    //         .enable_basic()
-    //         .write(|w| w.timer().set_bit());
-    //     __dsb();
-    //
-    //     // timer setup
-    //     let tim_load = 0x2000b400 as *mut u32;
-    //     let tim_ctrl = 0x2000b408 as *mut u32;
-    //     let tim_irq_clr = 0x2000b40c as *mut u32;
-    //     // APB_clock / (pre_scaler + 1)
-    //     // APB_clock may or may not be the core clock at 250MHz
-    //     // tim_pre.write_volatile();
-    //     // for 16-bit counter mode
-    //     tim_load.write_volatile(0x10);
-    //     // // let tim_pre = tim.add(0x41c);
-    //     // tim_ctrl.write_volatile(0x3e00_0000);
-    //     // unsure what value; just says "when writing" so maybe anything?
-    //     // tim_irq_clr.write_volatile(0);
-    //     tim_ctrl.write_volatile(
-    //         // (0b1 << 1) // 32-bit counters
-    //         //     | (0b01 << 2) // pre scale is clock/16 - not sure which prescale this is
-    //         //     | (0b1 << 5) // enable timer interrupt
-    //         //     | (0b1 << 7), // enable timer
-    //         (tim_ctrl.read_volatile() & !0b11_1111_1111) | 0b11_1110_0110,
-    //     );
-    //
-    //     __dsb();
-    // }
-    //
-    // unsafe {
-    //     // int::set_enabled_interrupts(InterruptMode::IrqOnly);
-    //     asm!("cpsie i");
-    // }
-    //
-    // // loop {}
-    //
-    // delay_millis(&peripherals.SYSTMR, 1000);
-    //
-    // unsafe {
-    //     asm!("cpsid i");
-    //     // int::set_enabled_interrupts(InterruptMode::Neither);
-    // }
-    //
-    // uart1_println!(&peripherals.UART1, "[bis] finished waiting, IRQs disabled");
-    // let addrs = unsafe { (&*TABLE.0.get()).addrs.as_ptr().cast_mut() };
-    // let next = unsafe { &raw const (&*TABLE.0.get()).next }.cast_mut();
-    // let fencepost = unsafe { next.read_volatile() };
-    // for i in 0..fencepost {
-    //     let addr = unsafe { addrs.offset(i as isize).read_volatile() };
-    //     let shadow: *const u32 = core::ptr::with_exposed_provenance(addr as usize | 0x1000_0000);
-    //     let count = unsafe { shadow.read_volatile() };
-    //
-    //     uart1_println!(&peripherals.UART1, "{addr:08x}: {count:08x}");
-    // }
-    // // uart1_println!(&peripherals.UART1, "[bis] HT={:?}", unsafe {});
+    steal_println!("et fini");
 
     __symbol_kreboot()
 }
@@ -203,7 +111,7 @@ pub extern "C" fn __symbol_kstart() -> ! {
 pub extern "C" fn __symbol_kreboot() -> ! {
     let peripherals = unsafe { Peripherals::steal() };
     uart1_println!(&peripherals.UART1, "[bis] rebooting");
-    loop {}
+    quartz::device::bcm2835::watchdog::restart(&peripherals.PM);
 }
 
 #[panic_handler]
@@ -231,7 +139,6 @@ fn panic(info: &PanicInfo) -> ! {
         );
     }
     let msg = info.message();
-    use core::fmt::Write as _;
     let mut proxy = Uart1WriteProxy::new(&peri.UART1);
     if core::fmt::write(&mut proxy, format_args!("{}\n", msg)).is_err() {
         uart1_println!(
@@ -242,4 +149,24 @@ fn panic(info: &PanicInfo) -> ! {
     uart1_println!(&peri.UART1, "[device]: rebooting.\n");
 
     __symbol_kreboot()
+}
+
+struct MyCriticalSection;
+critical_section::set_impl!(MyCriticalSection);
+
+static CRITICAL_SECTION_LOCK: RawTicketLock = RawTicketLock::INIT;
+
+unsafe impl critical_section::Impl for MyCriticalSection {
+    unsafe fn acquire() -> RawRestoreState {
+        // TODO
+        // let cpsr_orig = crate::arch::arm1176::cpsr::__read_cpsr();
+        // __write_cpsr(cpsr_orig.with_disable_irq(true));
+        // CRITICAL_SECTION_LOCK.lock();
+        0
+    }
+
+    unsafe fn release(_token: RawRestoreState) {
+        // unsafe { CRITICAL_SECTION_LOCK.unlock() };
+        // TODO
+    }
 }

@@ -16,13 +16,16 @@ export okns-prefix
 
 build := env "$${params[@]}" $(MAKE) -f $(okns-prefix)/infra/common.mk
 
-.PHONY: okboot
+.PHONY: okboot bismuth
 okboot:
 	params+=("build-artefact=okboot"); \
-	params+=("build-asm-files=boot.S stub.S"); \
+	params+=("build-asm-files=boot.S stub.S elf.S"); \
 	$(build)
 
 bismuth:
 	params+=("build-artefact=bismuth"); \
-	params+=("build-asm-files=boot.S int.S"); \
+	params+=("build-asm-files=boot.S int.S thread.S"); \
 	$(build)
+
+lichee:
+	$(MAKE) -f $(okns-prefix)/exnihilo/lichee.mk

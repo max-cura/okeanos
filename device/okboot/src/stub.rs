@@ -195,3 +195,89 @@ pub mod flat_binary {
         }
     }
 }
+
+unsafe extern "C" {
+    pub(crate) static __symbol_relocation_elf: [u8; 0];
+    pub(crate) static __symbol_relocation_elf_end: [u8; 0];
+}
+
+pub mod elf {
+    use crate::buf::FrameSink;
+    use crate::legacy_print_string_blocking;
+    use crate::stub::{__symbol_relocation_elf, __symbol_relocation_elf_end};
+    use alloc::vec::Vec;
+    use bcm2835_lpa::Peripherals;
+    use core::alloc::Layout;
+    use core::arch::asm;
+    use elf::segment::Elf32_Phdr;
+    use quartz::arch::arm1176::__dsb;
+    use quartz::arch::arm1176::mmu::__disable_mmu;
+    use quartz::device::bcm2835::mini_uart::muart1_init;
+    use quartz::device::bcm2835::timing::delay_millis;
+
+    pub unsafe fn final_relocation(
+        peripherals: &Peripherals,
+        fs: &mut FrameSink,
+        pheaders: Vec<Elf32_Phdr>,
+        elf: &[u8],
+        entry: usize,
+    ) -> ! {
+        muart1_init(&peripherals.GPIO, &peripherals.AUX, &peripherals.UART1, 270);
+
+        delay_millis(&peripherals.SYSTMR, 1000);
+        let stub_begin = &raw const __symbol_relocation_elf;
+        let stub_end = &raw const __symbol_relocation_elf_end;
+
+        __dsb();
+        peripherals
+            .GPIO
+            .gpfsel2()
+            .modify(|_, w| w.fsel27().output());
+        // peripherals
+        //     .GPIO
+        //     .gpset0()
+        //     .write_with_zero(|w| w.set27().set_bit());
+        __dsb();
+
+        let stub_len = unsafe { stub_end.byte_offset_from(stub_begin) as usize };
+        legacy_print_string_blocking!(&peripherals.UART1, "\t[elf] stub code={stub_begin:#?}\n");
+        legacy_print_string_blocking!(&peripherals.UART1, "\t[elf] stub length={stub_len:#?}\n");
+
+        let (phdr_ptr, phdr_len, _phdr_cap) = pheaders.into_raw_parts();
+        let elf_base = elf.as_ptr();
+
+        legacy_print_string_blocking!(&peripherals.UART1, "\t[elf] ELF base={elf_base:#?}\n");
+        legacy_print_string_blocking!(&peripherals.UART1, "\t[elf] ELF entry={entry:#?}\n");
+        legacy_print_string_blocking!(
+            &peripherals.UART1,
+            "\t[elf] program headers={phdr_ptr:#?}\n"
+        );
+        legacy_print_string_blocking!(
+            &peripherals.UART1,
+            "\t[elf] program header count={phdr_len:#?}\n"
+        );
+
+        let stub_layout = Layout::from_size_align(stub_len, 0x20).unwrap();
+        let stub_dst = unsafe { alloc::alloc::alloc(stub_layout) };
+        legacy_print_string_blocking!(&peripherals.UART1, "\t[elf] stub dst={stub_dst:#?}\n");
+
+        unsafe { core::ptr::copy(stub_begin.cast(), stub_dst, stub_len) };
+
+        crate::protocol::flush_to_fifo(fs, &peripherals.UART1);
+        crate::mini_uart::mini_uart1_flush_tx(&peripherals.UART1);
+
+        unsafe { __disable_mmu() };
+
+        unsafe {
+            asm!(
+            "bx {t0}",
+            in("r0") phdr_ptr,
+            in("r1") phdr_len,
+            in("r2") elf_base,
+            in("r3") entry,
+            t0 = in(reg) stub_dst,
+            options(noreturn),
+            )
+        }
+    }
+}

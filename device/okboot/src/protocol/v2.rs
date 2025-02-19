@@ -2,14 +2,21 @@ use crate::buf::{FrameSink, SendError};
 use crate::protocol::{ProtocolStatus, Timeouts};
 use crate::rpc_println;
 use crate::stub::flat_binary::{Integrity, Relocation};
+use alloc::vec;
+use alloc::vec::Vec;
 use bcm2835_lpa::Peripherals;
 use core::fmt::Debug;
 use core::time::Duration;
+use elf::ElfBytes;
+use elf::abi::{EM_ARM, ET_EXEC, PT_GNU_STACK, PT_LOAD, PT_NOTE, PT_TLS};
+use elf::endian::{EndianParse, LittleEndian};
+use elf::file::Class;
+use elf::segment::Elf32_Phdr;
 use miniz_oxide::inflate::stream::InflateState;
 use miniz_oxide::{DataFormat, MZError, MZFlush, MZStatus};
 use okboot_common::frame::FrameHeader;
 use okboot_common::host::{Chunk, FormatDetails, Metadata};
-use okboot_common::{device, host, MessageType};
+use okboot_common::{MessageType, device, host};
 use quartz::device::bcm2835::timing::Instant;
 use thiserror::Error;
 
@@ -241,8 +248,11 @@ impl V2 {
         }
         let ok = match msg.format_details {
             FormatDetails::Bin { load_address } => {
-                if load_address >= 0x2000_0000 {
-                    rpc_println!(frame_sink, "[device/v2] BIN file load address too high");
+                if load_address >= 0x1000_0000 {
+                    rpc_println!(
+                        frame_sink,
+                        "[device/v2] BIN file load address too high (must be below 0x1000_0000)"
+                    );
                     false
                 } else if (load_address & 3) != 0 {
                     rpc_println!(
@@ -254,7 +264,10 @@ impl V2 {
                     true
                 }
             }
-            FormatDetails::Elf => true,
+            FormatDetails::Elf => {
+                rpc_println!(frame_sink, "[device/v2] Loading ELF file");
+                true
+            }
         };
         if ok {
             self.state = S::AckMetadata(msg);
@@ -423,8 +436,8 @@ impl V2 {
             };
             let booter = match Loader::finalize(loader, frame_sink, peripherals) {
                 Ok(booter) => booter,
-                Err(_e) => {
-                    rpc_println!(frame_sink, "[device/v2] can't finalize, retrying");
+                Err(e) => {
+                    rpc_println!(frame_sink, "[device/v2] can't finalize, retrying: {e}");
                     return false;
                 }
             };
@@ -523,16 +536,38 @@ impl V2 {
 }
 
 #[derive(Debug)]
-struct Booter {
-    relocation: Relocation,
+enum Booter {
+    Relocation {
+        relocation: Relocation,
+    },
+    Elf {
+        program_headers: Vec<Elf32_Phdr>,
+        elf: Vec<u8>,
+        entry: usize,
+    },
 }
 impl Booter {
     fn flat_binary(relocation: Relocation) -> Self {
-        Self { relocation }
+        Self::Relocation { relocation }
     }
     fn enter(self, peripherals: &Peripherals, frame_sink: &mut FrameSink) -> ! {
-        unsafe {
-            crate::stub::flat_binary::final_relocation(peripherals, frame_sink, self.relocation)
+        match self {
+            Self::Relocation { relocation } => unsafe {
+                crate::stub::flat_binary::final_relocation(peripherals, frame_sink, relocation)
+            },
+            Booter::Elf {
+                program_headers,
+                elf,
+                entry,
+            } => unsafe {
+                crate::stub::elf::final_relocation(
+                    peripherals,
+                    frame_sink,
+                    program_headers,
+                    &elf,
+                    entry,
+                )
+            },
         }
     }
 }
@@ -541,6 +576,8 @@ impl Booter {
 enum LoadError {
     #[error("CRC mismatch")]
     Crc,
+    #[error("ELF error: {0}")]
+    Elf(ElfError),
 }
 
 #[enum_dispatch::enum_dispatch]
@@ -634,22 +671,144 @@ impl Loader for BinLoader {
 struct ElfLoader {
     #[allow(unused)]
     metadata: Metadata,
+    bytes: Vec<u8>,
+    program_headers: Vec<Elf32_Phdr>,
 }
 impl ElfLoader {
     pub fn new(metadata: Metadata) -> Self {
-        Self { metadata }
+        Self {
+            metadata,
+            bytes: Vec::with_capacity(metadata.deflated_len as usize),
+            program_headers: vec![],
+        }
     }
 }
+#[derive(Debug, Error)]
+pub enum ElfError {
+    #[error("error parsing ELF header: {0}")]
+    Parse(elf::ParseError),
+    #[error("expected ELF32, found ELF64")]
+    Class,
+    #[error("expected EM_ARM")]
+    Machine,
+    #[error("expected ET_EXEC")]
+    Type,
+    #[error("expected ELF v1")]
+    Version,
+    #[error("expected entry below 0x1000_0000")]
+    Entry,
+    #[error("expected little-endian ELF binary")]
+    Endianness,
+    #[error("expected e_ident[EI_OSABI] to be 0 (none/sysv)")]
+    OsAbi,
+    #[error("expected a segment table")]
+    NoSegmentTable,
+    #[error("ELF TLS is not supported yet")]
+    Tls,
+    #[error("expected PT_LOAD or PT_TLS segment")]
+    SegmentType,
+    #[error("PT_LOAD must have p_filesz=p_memsz or p_filesz=0")]
+    SegmentSize,
+}
 impl Loader for ElfLoader {
-    fn receive_bytes(&mut self, _bytes: &[u8]) -> Result<(), LoadError> {
-        todo!()
+    fn receive_bytes(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
+        self.bytes.extend_from_slice(bytes);
+
+        Ok(())
     }
 
     fn finalize(
-        self,
-        _frame_sink: &mut FrameSink,
+        mut self,
+        frame_sink: &mut FrameSink,
         _peripherals: &Peripherals,
     ) -> Result<Booter, LoadError> {
-        todo!()
+        let calculated_crc = crc32fast::hash(&self.bytes);
+        if calculated_crc != self.metadata.deflated_crc {
+            rpc_println!(
+                frame_sink,
+                "[device/v2] CRC mismatch: expected {:#010x} calculated {:#010x}",
+                self.metadata.deflated_crc,
+                calculated_crc
+            );
+            return Err(LoadError::Crc);
+        }
+        let eb: ElfBytes<LittleEndian> = match elf::ElfBytes::minimal_parse(&self.bytes) {
+            Ok(eb) => eb,
+            Err(e) => {
+                return Err(LoadError::Elf(ElfError::Parse(e)));
+            }
+        };
+        let ehdr = &eb.ehdr;
+        if !matches!(ehdr.class, Class::ELF32) {
+            return Err(LoadError::Elf(ElfError::Class));
+        }
+        if !ehdr.endianness.is_little() {
+            return Err(LoadError::Elf(ElfError::Endianness));
+        }
+        if ehdr.osabi != 0 {
+            return Err(LoadError::Elf(ElfError::OsAbi));
+        }
+
+        if ehdr.e_type != ET_EXEC {
+            return Err(LoadError::Elf(ElfError::Type));
+        }
+        if ehdr.e_machine != EM_ARM {
+            return Err(LoadError::Elf(ElfError::Machine));
+        }
+        if ehdr.version != 1 {
+            return Err(LoadError::Elf(ElfError::Version));
+        }
+        let entry = ehdr.e_entry;
+        if entry >= 0x1000_0000 {
+            return Err(LoadError::Elf(ElfError::Entry));
+        }
+
+        let Some(segment_table) = eb.segments() else {
+            return Err(LoadError::Elf(ElfError::NoSegmentTable));
+        };
+        for segment in segment_table.iter() {
+            if segment.p_type == PT_TLS {
+                return Err(LoadError::Elf(ElfError::Tls));
+            } else if segment.p_type == PT_LOAD {
+                // offset - offset in file
+                // vaddr - "virtual" address to load at - we treat this as physical
+                // paddr - physical address - ignored
+                // filesz - size in file
+                // memsz - size in memory
+                // flags
+                // align -  As ``Program Loading'' describes in this chapter of the processor
+                //          supplement, loadable process segments must have congruent values for
+                //          p_vaddr and p_offset, modulo the page size. This member gives the value
+                //          to which the segments are aligned in memory and in the file. Values 0
+                //          and 1 mean no alignment is required. Otherwise, p_align should be a
+                //          positive, integral power of 2, and p_vaddr should equal p_offset, modulo
+                //          p_align.
+                if (segment.p_filesz != segment.p_memsz) && (segment.p_filesz != 0) {
+                    return Err(LoadError::Elf(ElfError::SegmentSize));
+                }
+                self.program_headers.push(Elf32_Phdr {
+                    p_type: segment.p_type,
+                    p_offset: segment.p_offset as u32,
+                    p_vaddr: segment.p_vaddr as u32,
+                    p_paddr: segment.p_paddr as u32,
+                    p_filesz: segment.p_filesz as u32,
+                    p_memsz: segment.p_memsz as u32,
+                    p_flags: segment.p_flags,
+                    p_align: segment.p_align as u32,
+                });
+            } else if segment.p_type == PT_GNU_STACK {
+                rpc_println!(frame_sink, "[device/v2/elf] ignoring PT_GNU_STACK");
+            } else if segment.p_type == PT_NOTE {
+                rpc_println!(frame_sink, "[device/v2/elf] ignoring PT_NOTE");
+            } else {
+                return Err(LoadError::Elf(ElfError::SegmentType));
+            }
+        }
+
+        Ok(Booter::Elf {
+            program_headers: self.program_headers,
+            elf: self.bytes,
+            entry: entry as usize,
+        })
     }
 }

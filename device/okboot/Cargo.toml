@@ -5,6 +5,8 @@ edition = "2024"
 
 [lib]
 crate-type = ["staticlib"]
+test = false
+bench = false
 
 [dependencies]
 bcm2835-lpa = { version = "0.4.0", features = [] }
@@ -16,12 +18,14 @@ okboot-common = { path = "../../common/okboot-common", default-features = false,
 
 miniz_oxide = { version = "0.7.4", default-features = false, features = [] }
 
-error-stack = { version = "0.4.1", default-features = false, features = [] }
-
 postcard = { version = "1.1.1", default-features = false }
 serde = { version = "1.0.217", default-features = false }
 
 enum_dispatch = "0.3.13"
-lock_api = "0.4.12"
 
 quartz = { path = "../quartz" }
+embedded-alloc = "0.6.0"
+critical-section = { version = "1.2.0", features = ["restore-state-u32"] }
+
+elf = { version = "0.7.4", default-features = false, features = ["nightly"] }
+lock_api = "0.4.12"

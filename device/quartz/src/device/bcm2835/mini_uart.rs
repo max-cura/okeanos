@@ -23,22 +23,25 @@ pub fn muart1_init(gpio: &GPIO, aux: &AUX, uart: &UART1, clock_divider: u16) {
     __dsb();
 
     uart.cntl()
-        .modify(|_, w| w.tx_enable().clear_bit().rx_enable().clear_bit());
-    uart.ier().modify(|_, w| {
-        // docs are a bit screwy-I also don't completely trust bcm2835-lpa here, either
-        // however, we can just w.bits(0) to disable all interrupts so
-        unsafe { w.bits(0) }
-    });
+        .write(|w| w.tx_enable().clear_bit().rx_enable().clear_bit());
+
+    unsafe {
+        uart.ier().write_with_zero(|w| {
+            // docs are a bit screwy-I also don't completely trust bcm2835-lpa here, either
+            // however, we can just w.bits(0) to disable all interrupts so
+            w.bits(0)
+        })
+    };
     __uart1_clear_fifos_unguarded(uart);
     uart.baud().write(|w| unsafe { w.bits(clock_divider) });
-    uart.lcr().modify(|_, w| {
+    uart.lcr().write(|w| {
         w.data_size()._8bit()
         // .break_().clear_bit()
         // .dlab().clear_bit()
     });
-    uart.mcr().modify(|_, w| w.rts().clear_bit());
-    uart.cntl()
-        .modify(|_, w| w.cts_enable().clear_bit().rts_enable().clear_bit());
+    uart.mcr().write(|w| w.rts().clear_bit());
+    // uart.cntl()
+    // .modify(|_, w| w.cts_enable().clear_bit().rts_enable().clear_bit());
     uart.cntl()
         .modify(|_, w| w.tx_enable().set_bit().rx_enable().set_bit());
 
@@ -46,7 +49,7 @@ pub fn muart1_init(gpio: &GPIO, aux: &AUX, uart: &UART1, clock_divider: u16) {
 }
 
 fn __uart1_flush_tx_unguarded(uart: &UART1) {
-    while uart.stat().read().tx_empty().bit_is_clear() {}
+    while uart.stat().read().tx_done().bit_is_clear() {}
 }
 
 fn __uart1_clear_fifos_unguarded(uart: &UART1) {
@@ -87,6 +90,6 @@ pub fn mini_uart1_set_clock(uart: &UART1, new_divider: u16) -> bool {
 pub fn mini_uart1_flush_tx(uart: &UART1) {
     __dsb();
     // actually for real tx_empty
-    while uart.stat().read().tx_empty().bit_is_clear() {}
+    while uart.stat().read().tx_done().bit_is_set() {}
     __dsb();
 }

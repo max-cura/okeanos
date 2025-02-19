@@ -39,13 +39,10 @@ macro_rules! uart1_println {
             //       empty moment for me
             {
                 #[allow(unused_imports)]
-                use core::fmt::Write as _;
+                use ::core::fmt::Write as _;
                 let mut proxy = $crate::fmt::Uart1WriteProxy::new($out);
-                // let bub = unsafe { &mut *$crate::legacy::fmt::BOOT_UMSG_BUF.0.get() };
-                // bub.clear();
                 let _ = ::core::writeln!(proxy, $($arg)*);
-                // let _ = tmp.write_str(bub.as_str());
-                quartz::device::bcm2835::mini_uart::mini_uart1_flush_tx($out);
+                ::quartz::device::bcm2835::mini_uart::mini_uart1_flush_tx($out);
             }
         }
     }
