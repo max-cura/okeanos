@@ -1,13 +1,13 @@
 # parameters:
-# 	b-artefact
-#	b-asm-files
-#	b-asm-root 		(default: "extern")
-#	b-package		(default: b-artefact)
-#	b-linker-script (default: def-linker-script)
-# 	b-cargo-profile (default: "release")
+# 	build-artefact
+#	build-asm-files
+#	build-asm-root 		(default: "extern")
+#	build-package		(default: build-artefact)
+#	build-linker-script (default: def-linker-script)
+# 	build-cargo-profile (default: "release")
 #
-# If specified, b-asm-root and b-linker-script are relative to the package root
-# b-asm-files are relative to b-asm-root
+# If specified, build-asm-root and build-linker-script are relative to the package root
+# build-asm-files are relative to build-asm-root
 
 .SUFFIXES:
 
@@ -37,16 +37,17 @@ def-linker-script := $(okns-infra-prefix)/linker/default.ld
 cpu := arm1176jzf-s
 target := armv6zk-none-eabihf
 
+tune-flags := -mcpu=$(cpu) -march=armv6zk+fp -mfpu=vfpv2 -mfloat-abi=hard
+
 # flags
 
 freestanding-flags := -nostdlib -ffreestanding -nostartfiles
 
-tune-flags := -mcpu=$(cpu) -march=armv6zk+fp -mfpu=vfpv2 -mfloat-abi=hard
-
 as-flags := $(freestanding-flags) $(tune-flags:%=-Wa,%) -fPIC
 as-flags += -Wa,--warn -Wa,--fatal-warnings
+as-flags += -I$(okns-src-device)/extern
 
-dep-flags = -MT $@ -MMD -MP -MF $(z-asm-dep-dir)/$*.d
+dep-flags = -MT $@ -MMD -MP -MF $(asm-dep-dir)/$*.d
 
 ld-flags := $(freestanding-flags) $(tune-flags)
 ld-flags += -Wl,--gc-sections
@@ -54,78 +55,78 @@ ld-flags += -z noexecstack
 
 # target setup
 
-z-artefact := $(b-artefact)
+artefact := $(build-artefact)
 
-b-package ?= $(b-artefact)
-z-package := $(b-package)
-z-package-root := $(okns-src-device)/$(z-package)
-z-build-root := $(okns-build-prefix)/$(z-package)
+build-package ?= $(build-artefact)
+package := $(build-package)
+package-root := $(okns-src-device)/$(package)
+build-root := $(okns-build-prefix)/$(package)
 
-b-asm-root ?= extern
-z-asm-root := $(z-package-root)/$(b-asm-root)
-z-asm-files := $(b-asm-files)
+build-asm-root ?= extern
+asm-root := $(package-root)/$(build-asm-root)
+asm-files := $(build-asm-files)
 
-b-cargo-profile ?= release
-z-cargo-profile := $(b-cargo-profile)
-z-cargo-target-profile := $(b-cargo-profile)
-ifeq ($(z-cargo-profile), $(filter $(z-cargo-profile), dev test))
-	z-cargo-target-profile := debug
+build-cargo-profile ?= release
+cargo-profile := $(build-cargo-profile)
+cargo-target-profile := $(build-cargo-profile)
+ifeq ($(cargo-profile), $(filter $(cargo-profile), dev test))
+	cargo-target-profile := debug
 endif
-ifeq ($(z-cargo-profile), bench)
-	z-cargo-target-profile := release
+ifeq ($(cargo-profile), bench)
+	cargo-target-profile := release
 endif
-z-cargo-target-dir := $(cargo-target-prefix)/$(target)/$(z-cargo-target-profile)
+cargo-target-dir := $(cargo-target-prefix)/$(target)/$(cargo-target-profile)
 
-ifdef b-linker-script
-	b-linker-script := $(addprefix $(z-package-root)/,$(b-linker-script))
+ifdef build-linker-script
+	build-linker-script := $(addprefix $(package-root)/,$(build-linker-script))
 endif
-b-linker-script ?= $(def-linker-script)
-z-linker-script := $(b-linker-script)
+build-linker-script ?= $(def-linker-script)
+linker-script := $(build-linker-script)
 
 # generated files
 
-z-lib-file := $(z-cargo-target-dir)/lib$(z-artefact).a
-z-elf-file := $(z-build-root)/$(z-artefact).elf
-z-list-file := $(z-build-root)/$(z-artefact).list
-z-bin-file := $(z-build-root)/$(z-artefact).bin
+lib-file := $(cargo-target-dir)/lib$(artefact).a
+elf-file := $(build-root)/$(artefact).elf
+list-file := $(build-root)/$(artefact).list
+bin-file := $(build-root)/$(artefact).bin
 
-z-asm-obj-files := $(z-asm-files:%.S=$(z-build-root)/%.o)
-z-asm-dep-dir := $(z-build-root)/deps
-z-asm-dep-files := $(z-asm-files:%.S=$(z-asm-dep-dir)/%.d)
+asm-obj-files := $(asm-files:%.S=$(build-root)/%.o)
+asm-dep-dir := $(build-root)/deps
+asm-dep-files := $(asm-files:%.S=$(asm-dep-dir)/%.d)
 
-z-gen-files := $(z-lib-file) $(z-elf-file) $(z-list-file) $(z-bin-file) \
-			   $(z-asm-obj-files) $(z-asm-dep-files)
+gen-files := $(lib-file) $(elf-file) $(list-file) $(bin-file) \
+			   $(asm-obj-files) $(asm-dep-files)
 
 .PHONY: clean all
 
-all: $(z-bin-file) $(z-list-file)
+all: $(bin-file) $(list-file)
 
 clean:
-	cargo clean -p $(z-package)
-	rm -f $(z-gen-files)
+	cargo clean -p $(package)
+	rm -f $(gen-files)
 
 .PHONY: phony-cargo
 
 # When invoking cargo from workspace root, it won't load the config.toml properly
 # [1]: https://doc.rust-lang.org/cargo/reference/config.html
-$(z-lib-file): phony-cargo
-	( cd $(okns-src-device); cargo build --profile $(z-cargo-profile) -p $(z-package) )
+$(lib-file): phony-cargo
+	( cd $(okns-src-device); cargo build --profile $(cargo-profile) -p $(package) )
 
-$(z-asm-dep-dir): ; @mkdir -p $@
-$(z-build-root): ; @mkdir -p $@
+$(asm-dep-dir): ; @mkdir -p $@
+$(build-root): ; @mkdir -p $@
 
-$(z-build-root)/%.o: $(z-asm-root)/%.S $(z-asm-dep-dir)/%.d | $(z-asm-dep-dir)
+$(build-root)/%.o: $(asm-root)/%.S $(asm-dep-dir)/%.d | $(asm-dep-dir)
 	$(arm-none-eabi-gcc) $(as-flags) -c -o $@ $<
 
-$(z-elf-file): $(z-asm-obj-files) $(z-lib-file) | $(z-build-root)
-	$(arm-none-eabi-gcc) -T $(z-linker-script) $(ld-flags) $^ -o $@
+$(elf-file): $(asm-obj-files) $(lib-file) | $(build-root)
+	$(arm-none-eabi-gcc) -T $(linker-script) $(ld-flags) $^ -o $@
 
-$(z-list-file): $(z-elf-file) | $(z-build-root)
+$(list-file): $(elf-file) | $(build-root)
 	$(arm-none-eabi-objdump) -D $< > $@
 
-$(z-bin-file): $(z-elf-file) | $(z-build-root)
+$(bin-file): $(elf-file) | $(build-root)
 	$(arm-none-eabi-objcopy) $< -O binary $@
 
-$(z-asm-dep-files):
+$(asm-dep-files):
 
-include $(wildcard $(z-asm-dep-files))
+include $(wildcard $(asm-dep-files))

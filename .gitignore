@@ -1,15 +1,9 @@
-_old/thalassa-old
 target
+_old
 .idea
-.vscode
-_old/build/*/*
-_old/doc/.obsidian
+build
 .DS_Store
 *.bin
 *.elf
 *.list
 *.o
-serialport-rs
-bin*.pdf
-_old*.pdf
-doc/.obsidian

@@ -1,16 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "device/lab4-common",
-    "device/lab4-send",
-    "device/lab4-recv",
+    "common/okboot-common",
     "device/bismuth",
-    "device/dmr-passthru",
-    "device/dmr-client",
-    "device/dmr-server",
-    "_old/lab7-wave",
-    "_old/lab7-scope",
-    "device/theseus-device",
-    "host/theseus-upload",
-    "common/theseus-common",
+    "device/okboot",
+    "device/quartz", "exnihilo/lichee",
+    "host/okdude", "host/sim",
 ]
