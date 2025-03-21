@@ -1,7 +1,181 @@
-use crate::int::{InterruptMode, OperatingMode};
+use quartz::arch::arm1176::{dmb, dsb, prefetch_flush};
 use thiserror::Error;
 
-quartz::cpreg!(vector_base_address, p15, 0, c12, c0, 0);
+quartz::define_coprocessor_registers! {
+    vector_base_address => p15 0 c12 c0 0;
+}
+
+/// Define an `extern "C"` "function" with name `$name` that can be placed in the IRQ vector slot
+/// and will call out to `$target`.
+#[macro_export]
+macro_rules! define_irq_trampoline {
+    ($name:ident, $target:ident) => {
+        unsafe extern "C" {
+            pub static $name: [u32; 0];
+        }
+        ::core::arch::global_asm!(
+            ".globl {EXPORT_SYM}",
+            "{EXPORT_SYM}:",
+            "   sub lr, lr, #4",
+            "   stmfd sp!,{{r0-r12, lr}}",
+            "   mrs r0, spsr",
+            "   stmfd sp!,{{r0}}",
+            "   bl {TARGET_SYM}",
+            "   ldmia sp!,{{r0}}",
+            "   msr spsr, r0",
+            "   ldmia sp!,{{r0-r12, pc}}^",
+            EXPORT_SYM = sym $name,
+            TARGET_SYM = sym $target,
+        );
+    };
+}
+
+/// `$target` expects: `fn(x) -> usize` where `x` is the address of the instruction that had the
+/// prefetch abort.
+#[macro_export]
+macro_rules! define_pabt_trampoline {
+    ($name:ident, $target:ident) => {
+        unsafe extern "C" { pub static $name: [u32; 0]; }
+        ::core::arch::global_asm!(
+        r#"
+            .globl {EXPORT_SYM}
+            .extern {TARGET_SYM}
+            {EXPORT_SYM}:
+                push {{r0-r12}}
+                sub r0, lr, #4
+                mov r1, sp
+                bl {TARGET_SYM}
+                add lr, r0, #4
+                pop {{r0-r12}}
+                subs pc, lr, #4
+        "#,
+            EXPORT_SYM = sym $name,
+            TARGET_SYM = sym $target,
+        );
+    }
+}
+/// `$target` expects: `fn(x) -> ()` where `x` is the address of the Load or Store instruction that
+/// generated the data abort.
+#[macro_export]
+macro_rules! define_dabt_trampoline {
+    ($name:ident, $target:ident) => {
+        unsafe extern "C" { pub static $name: [u32; 0]; }
+        ::core::arch::global_asm!(
+        r#"
+            .globl {EXPORT_SYM}
+            .extern {TARGET_SYM}
+            {EXPORT_SYM}:
+                push {{r0-r12, lr}}
+                sub r0, lr, #8
+                bl {TARGET_SYM}
+                pop {{r0-r12, lr}}
+                subs pc, lr, #4
+            "#,
+            EXPORT_SYM = sym $name,
+            TARGET_SYM = sym $target,
+        );
+    };
+}
+
+/*
+This one looks a bit different; for a start, we can rely on register saving to work in our
+favor here.
+
+SAFETY: STACK NEEDS TO HAVE 2 WORDS OF SPACE AT THE TOP
+*/
+#[macro_export]
+macro_rules! define_svc_trampoline {
+    ($name:ident, $target:ident) => {
+        unsafe extern "C" { pub static $name: [u32; 0]; }
+        ::core::arch::global_asm!(
+            r#"
+            .globl {EXPORT_SYM}
+            .extern {TARGET_SYM}
+            {EXPORT_SYM}:
+                srsia #{SUPERVISOR_MODE}
+                push {{r0-r2}}
+                push {{r3, sp, lr}}
+                ldr r3, [lr, #-4]
+                mvn lr, #(0xff << 24)
+                and r3, r3, lr
+                bl {TARGET_SYM}
+                ldr r3, [sp, #0]
+                add sp, sp, #12
+                pop {{r0-r2}}
+                rfeia sp
+            "#,
+            EXPORT_SYM = sym $name,
+            TARGET_SYM = sym $target,
+            SUPERVISOR_MODE = const 0b10011,
+        );
+    };
+}
+
+#[macro_export]
+macro_rules! define_undef_trampoline {
+    ($name:ident, $target:ident) => {
+        unsafe extern "C" { pub static $name: [u32; 0]; }
+        ::core::arch::global_asm!(
+            r#"
+            .globl {EXPORT_SYM}
+            .extern {TARGET_SYM}
+            {EXPORT_SYM}:
+                srsia #{UNDEFINED_MODE}
+                push {{r0-r12, lr}}
+                sub r0, lr, #4
+                bl {TARGET_SYM}
+                pop {{r0-r12, lr}}
+                rfeia sp
+            "#,
+            EXPORT_SYM = sym $name,
+            TARGET_SYM = sym $target,
+            UNDEFINED_MODE = const 0b11011,
+        );
+    };
+}
+
+#[macro_export]
+macro_rules! define_reset_trampoline {
+    ($name:ident, $target:ident) => {
+        unsafe extern "C" { pub static $name: [u32; 0]; }
+        ::core::arch::global_asm!(
+            r#"
+            .globl {EXPORT_SYM}
+            .extern {TARGET_SYM}
+            {EXPORT_SYM}:
+                bl {TARGET_SYM}
+            2:
+                b 2b
+            "#,
+            EXPORT_SYM = sym $name,
+            TARGET_SYM = sym $target,
+        );
+    };
+}
+
+#[macro_export]
+macro_rules! define_fiq_trampoline {
+    ($name:ident, $target:ident) => {
+        unsafe extern "C" {
+            pub static $name: [u32; 0];
+        }
+        ::core::arch::global_asm!(
+            r#"
+            .globl {EXPORT_SYM}
+            .extern {TARGET_SYM}
+            {EXPORT_SYM}:
+                srsia #{FIQ_MODE}
+                push {{r0-r12,lr}}
+                bl {TARGET_SYM}
+                pop {{r0-r12, lr}}
+                rfeia sp
+            "#,
+            EXPORT_SYM = sym $name,
+            TARGET_SYM = sym $target,
+            FIQ_MODE = const 0b10001,
+        );
+    };
+}
 
 #[derive(Debug, Error, Copy, Clone)]
 pub enum ExceptionError {
@@ -15,7 +189,7 @@ pub enum ExceptionError {
     DestinationTooSmall,
 }
 
-pub type CodePtr = *const [u32; 0];
+pub type CodePtr = usize;
 
 pub enum FiqAction {
     Jump(CodePtr),
@@ -29,17 +203,19 @@ pub struct VectorBuilder {
 
 impl VectorBuilder {
     pub fn new() -> Self {
-        Self {
-            maps: [
-                unsafe { &raw const defaults::_landing_pad_reset },
-                unsafe { &raw const defaults::_landing_pad_undef },
-                unsafe { &raw const defaults::_landing_pad_svc },
-                unsafe { &raw const defaults::_landing_pad_pabt },
-                unsafe { &raw const defaults::_landing_pad_dabt },
-                unsafe { &raw const defaults::_landing_pad_none },
-                unsafe { &raw const defaults::_landing_pad_irq },
-            ],
-            fiq: FiqAction::Jump(unsafe { &raw const defaults::_landing_pad_fiq }),
+        unsafe {
+            Self {
+                maps: [
+                    defaults::_default_reset_trampoline.as_ptr().addr(),
+                    defaults::_default_undef_trampoline.as_ptr().addr(),
+                    defaults::_default_svc_trampoline.as_ptr().addr(),
+                    defaults::_default_pabt_trampoline.as_ptr().addr(),
+                    defaults::_default_dabt_trampoline.as_ptr().addr(),
+                    defaults::_default_none_trampoline as usize,
+                    defaults::_default_irq_trampoline.as_ptr().addr(),
+                ],
+                fiq: FiqAction::Jump(defaults::_default_fiq_trampoline.as_ptr().addr()),
+            }
         }
     }
     pub fn set_undefined_instruction_handler(mut self, action: CodePtr) -> Self {
@@ -72,17 +248,17 @@ impl VectorBuilder {
             return Err(ExceptionError::VectorTableAlignment);
         }
         let dst_base_addr = dst_base.expose_provenance();
-        let jump_target_addresses = self.maps.map(|p| p.addr());
+        let jump_target_addresses = self.maps;
         let jump_source_addresses =
             [0x0, 0x4, 0x8, 0xc, 0x10, 0x14, 0x18, 0x1c].map(|offset| dst_base_addr + offset);
         let encodings = [0, 1, 2, 3, 4, 5, 6].try_map(|i| {
             encode_relative_jump(jump_target_addresses[i], jump_source_addresses[i])
         })?;
-        let mut fiq_buffer;
+        let fiq_buffer;
         let (fiq_ptr_src, fiq_words) = match self.fiq {
             FiqAction::Jump(fiq_jump_target) => {
                 let fiq_jump_source = jump_source_addresses[7];
-                fiq_buffer = encode_relative_jump(fiq_jump_target.addr(), fiq_jump_source)?;
+                fiq_buffer = encode_relative_jump(fiq_jump_target, fiq_jump_source)?;
                 (&raw const fiq_buffer, 1usize)
             }
             FiqAction::Code(fiq_code_slice) => (
@@ -104,31 +280,19 @@ impl VectorBuilder {
             }
         }));
 
-        let save = super::int::set_enabled_interrupts(InterruptMode::Neither);
-        {
+        critical_section::with(|_| {
+            dmb();
             for (idx, word) in source_iter.enumerate() {
                 unsafe { dst_base.offset(idx as isize).write_volatile(word) };
             }
-            unsafe { vector_base_address::write(dst_base_addr) };
-        }
-        super::int::set_enabled_interrupts(save);
+            dsb(); // ensure that table is written before CP15 access
+            // NB: "any change involved with the processing of the exception itself (...) is
+            // guaranteed to take effect" (ARM, B2-24).
+            unsafe { vector_base_address::write_raw(dst_base_addr as u32) };
+            prefetch_flush(); // flush pipeline to ensure base address is visible
+        });
 
         Ok(())
-    }
-}
-
-mod defaults {
-    unsafe extern "C" {
-        pub static _landing_pad_svc: [u32; 0];
-        pub static _landing_pad_smc: [u32; 0];
-        pub static _landing_pad_undef: [u32; 0];
-        pub static _landing_pad_pabt: [u32; 0];
-        pub static _landing_pad_fiq: [u32; 0];
-        pub static _landing_pad_irq: [u32; 0];
-        pub static _landing_pad_dabt: [u32; 0];
-        pub static _landing_pad_reset: [u32; 0];
-        pub static _landing_pad_bkpt: [u32; 0];
-        pub static _landing_pad_none: [u32; 0];
     }
 }
 
@@ -151,8 +315,8 @@ fn encode_relative_jump(to_addr: usize, from_addr: usize) -> Result<u32, Excepti
     };
     if !expressible {
         return Err(ExceptionError::TooFar {
-            from: from_addr as usize,
-            to: to_addr as usize,
+            from: from_addr,
+            to: to_addr,
         });
     }
     let immed_24 = immed_24_unchecked & 0x00ff_ffff;
@@ -166,25 +330,53 @@ fn encode_relative_jump(to_addr: usize, from_addr: usize) -> Result<u32, Excepti
     Ok(instruction)
 }
 
-#[macro_export]
-macro_rules! def_irq_landing_pad {
-    ($name:ident, $target:ident) => {
-        unsafe extern "C" {
-            pub static $name: [u32; 0];
+mod defaults {
+    use crate::steal_println;
+
+    define_pabt_trampoline!(_default_pabt_trampoline, _landing_pad_pabt);
+    define_dabt_trampoline!(_default_dabt_trampoline, _landing_pad_dabt);
+    define_undef_trampoline!(_default_undef_trampoline, _landing_pad_undef);
+    define_svc_trampoline!(_default_svc_trampoline, _landing_pad_svc);
+    define_reset_trampoline!(_default_reset_trampoline, _landing_pad_reset);
+    define_irq_trampoline!(_default_irq_trampoline, _landing_pad_irq);
+    define_fiq_trampoline!(_default_fiq_trampoline, _landing_pad_fiq);
+
+    pub extern "C" fn _landing_pad_svc(
+        arg0: u32,
+        arg1: u32,
+        arg2: u32,
+        imm: u32,
+        arg3: u32,
+        lr: u32,
+    ) {
+        steal_println!("swi {imm} {arg0:08x} {arg1:08x} {arg2:08x} {arg3:08x} lr={lr:08x}");
+    }
+    pub extern "C" fn _landing_pad_undef(addr: u32) {
+        if addr < 0x2000_0000 {
+            let value =
+                unsafe { core::ptr::with_exposed_provenance::<u32>(addr as usize).read_volatile() };
+            steal_println!("Encountered undefined instruction at {addr:08x}: {value:08x}");
+        } else {
+            steal_println!("Encountered undefined instruction at {addr:08x}");
         }
-        global_asm!(
-            ".globl {EXPORT_SYM}",
-            "{EXPORT_SYM}:",
-            "   sub lr, lr, #4",
-            "   stmfd sp!,{{r0-r12, lr}}",
-            "   mrs r0, spsr",
-            "   stmfd sp!,{{r0}}",
-            "   bl {TARGET_SYM}",
-            "   ldmia sp!,{{r0}}",
-            "   msr spsr, r0",
-            "   ldmia sp!,{{r0-r12, pc}}^",
-            EXPORT_SYM = sym $name,
-            TARGET_SYM = sym $target,
-        );
-    };
+    }
+    extern "C" fn _landing_pad_pabt(addr: u32) {
+        steal_println!("Prefetch abort, addr={addr:08x}");
+    }
+    extern "C" fn _landing_pad_dabt(addr: u32) {
+        steal_println!("Data abort, addr={addr:08x}");
+    }
+    extern "C" fn _landing_pad_irq() {
+        steal_println!("IRQ interrupt");
+    }
+    extern "C" fn _landing_pad_fiq() {
+        steal_println!("FIQ interrupt");
+    }
+    extern "C" fn _landing_pad_reset() {
+        steal_println!("Reset vector called");
+    }
+    pub extern "C" fn _default_none_trampoline() {
+        steal_println!("vector at exception_base+0x14 called");
+        loop {}
+    }
 }

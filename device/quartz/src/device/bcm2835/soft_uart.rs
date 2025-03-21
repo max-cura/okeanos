@@ -1,4 +1,4 @@
-use crate::arch::arm1176::{__dsb, cycle};
+use crate::arch::arm1176::{cycle, dsb};
 use bcm2835_lpa::Peripherals;
 use core::fmt::Write;
 
@@ -28,9 +28,9 @@ impl<const TX: u8, const RX: u8> Uart8n1<TX, RX> {
     pub fn write_byte(&self, mut byte: u8, peri: &Peripherals) {
         let start = cycle::ccr_read();
         unsafe {
-            __dsb();
+            dsb();
             peri.GPIO.gpclr0().write_with_zero(|w| w.bits(1 << TX));
-            __dsb();
+            dsb();
             while cycle::ccr_read() < start + self.cycles_per_bit {}
         }
         let mut last_bit = 0;
@@ -38,21 +38,21 @@ impl<const TX: u8, const RX: u8> Uart8n1<TX, RX> {
             let bit = byte & 1;
             byte >>= 1;
             if bit != last_bit {
-                __dsb();
+                dsb();
                 if bit == 0 {
                     unsafe { peri.GPIO.gpclr0().write_with_zero(|w| w.bits(1 << TX)) };
                 } else {
                     unsafe { peri.GPIO.gpset0().write_with_zero(|w| w.bits(1 << TX)) };
                 }
-                __dsb();
+                dsb();
             }
             last_bit = bit;
             while cycle::ccr_read() < start + i * self.cycles_per_bit {}
         }
         unsafe {
-            __dsb();
+            dsb();
             peri.GPIO.gpset0().write_with_zero(|w| w.bits(1 << TX));
-            __dsb();
+            dsb();
             while cycle::ccr_read() < start + 10 * self.cycles_per_bit {}
         }
     }

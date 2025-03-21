@@ -7,4 +7,4 @@ build
 *.elf
 *.list
 *.o
-doc
+_old/doc

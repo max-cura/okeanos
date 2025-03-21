@@ -1,5 +1,7 @@
 use crate::tty::Tty;
 use crate::Args;
+use elf::endian::LittleEndian;
+use elf::ElfBytes;
 use eyre::{bail, ensure, eyre, Result, WrapErr};
 use indicatif::{ProgressBar, ProgressStyle};
 use okboot_common::frame::{FrameHeader, FrameLayer, FrameOutput};
@@ -155,13 +157,47 @@ fn send<M: EncodeMessageType + Serialize + Debug>(msg: &M, tx: &mut Tx) -> Resul
     Ok(())
 }
 
+fn serialize_args(args: &Args) -> Vec<u8> {
+    let v: Vec<Vec<u8>> = args.args.iter().map(|x| x.clone().into_bytes()).collect();
+    let mut v_out = vec![];
+    v_out.extend_from_slice(&u32::to_le_bytes(v.len() as u32));
+    for sub_v in &v {
+        v_out.extend_from_slice(&u32::to_le_bytes(sub_v.len() as u32));
+        v_out.extend_from_slice(&sub_v);
+        v_out.extend(std::iter::repeat_n(0u8, 4 - (sub_v.len() % 4)));
+        assert!(v_out.len().is_multiple_of(4));
+    }
+    v_out
+}
+
 fn upload_inner(
     args: &Args,
     mut out_tx: Tx,
     in_rx: Receiver<(MessageType, Vec<u8>)>,
 ) -> Result<()> {
-    let uncompressed = std::fs::read(&args.file)
+    let mut uncompressed = std::fs::read(&args.file)
         .with_context(|| eyre!("failed to open {}", args.file.display()))?;
+
+    if matches!(args.format_details, FormatDetails::Elf) {
+        let arg_vector = serialize_args(args);
+        let elf = ElfBytes::<LittleEndian>::minimal_parse(&uncompressed)
+            .expect("failed to parse input ELF file");
+        let stack = elf
+            .section_header_by_name(".data.args")
+            .expect("section table should be parseable")
+            .expect("file should have .data.args section");
+        let offset = stack.sh_offset as usize;
+        let size = stack.sh_size as usize;
+        if arg_vector.len() >= size {
+            tracing::error!("arguments would occupy more space than .data.args section");
+            std::process::exit(1);
+        }
+        let _ = elf;
+        tracing::debug!("Found .data.args : offset={offset} size={size}");
+        uncompressed[offset..offset + arg_vector.len()].copy_from_slice(&arg_vector);
+        tracing::info!("inserted arguments in .data.args");
+    }
+
     let compressed = miniz_oxide::deflate::compress_to_vec(&uncompressed, 5);
     // tracing::info!("[v2] compressed: {compressed:x?}");
     tracing::info!("[v2] original file length: {}", uncompressed.len());
@@ -233,8 +269,8 @@ fn upload_inner(
                     dispatch_chunk_req(msg, &info, &compressed, &mut out_tx, &progress_bar);
                 }
                 MessageType::Booting => {
-                    let out_msg = &host::BootingAck {};
-                    if let Err(e) = send(out_msg, &mut out_tx) {
+                    let out_msg = host::BootingAck {};
+                    if let Err(e) = send(&out_msg, &mut out_tx) {
                         tracing::error!("[v2] failed to send {msg:?}: {e}, continuing.");
                     }
                     tracing::info!("[v2] device is booting");

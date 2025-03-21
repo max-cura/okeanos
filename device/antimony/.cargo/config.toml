@@ -1,0 +1,11 @@
+[build]
+# RV64GC = RV64IMAFDC
+target = "riscv64gc-unknown-none-elf"
+
+[unstable]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
+
+[profile]
+dev.panic = "abort"
+release.panic = "abort"

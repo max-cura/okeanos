@@ -1,4 +1,4 @@
-use crate::arch::arm1176::__dsb;
+use crate::arch::arm1176::dsb;
 use bcm2835_lpa::{AUX, GPIO, UART1};
 
 const MINI_UART_CLOCK_RATE: u32 = 250_000_000;
@@ -11,16 +11,16 @@ pub const fn baud_to_clock_divider(baud_rate: u32) -> u16 {
 pub fn muart1_init(gpio: &GPIO, aux: &AUX, uart: &UART1, clock_divider: u16) {
     // TODO: check interrupts disabled
 
-    __dsb();
+    dsb();
 
     gpio.gpfsel1()
         .modify(|_, w| w.fsel14().txd1().fsel15().rxd1());
 
-    __dsb();
+    dsb();
 
     aux.enables().modify(|_, w| w.uart_1().set_bit());
 
-    __dsb();
+    dsb();
 
     uart.cntl()
         .write(|w| w.tx_enable().clear_bit().rx_enable().clear_bit());
@@ -45,7 +45,7 @@ pub fn muart1_init(gpio: &GPIO, aux: &AUX, uart: &UART1, clock_divider: u16) {
     uart.cntl()
         .modify(|_, w| w.tx_enable().set_bit().rx_enable().set_bit());
 
-    __dsb();
+    dsb();
 }
 
 fn __uart1_flush_tx_unguarded(uart: &UART1) {
@@ -63,13 +63,13 @@ fn __uart1_clear_fifos_unguarded(uart: &UART1) {
 }
 
 pub fn __uart1_clear_fifos(uart: &UART1) {
-    __dsb();
+    dsb();
     __uart1_clear_fifos_unguarded(uart);
-    __dsb();
+    dsb();
 }
 
 pub fn mini_uart1_set_clock(uart: &UART1, new_divider: u16) -> bool {
-    __dsb();
+    dsb();
     __uart1_flush_tx_unguarded(uart);
     let old_clock_divider = uart.baud().read().bits();
     uart.cntl()
@@ -83,13 +83,13 @@ pub fn mini_uart1_set_clock(uart: &UART1, new_divider: u16) -> bool {
     __uart1_clear_fifos_unguarded(uart);
     uart.cntl()
         .modify(|_, w| w.tx_enable().set_bit().rx_enable().set_bit());
-    __dsb();
+    dsb();
     succeeded
 }
 
 pub fn mini_uart1_flush_tx(uart: &UART1) {
-    __dsb();
+    dsb();
     // actually for real tx_empty
-    while uart.stat().read().tx_done().bit_is_set() {}
-    __dsb();
+    while !uart.stat().read().tx_done().bit_is_set() {}
+    dsb();
 }

@@ -4,7 +4,7 @@ pub mod uart1;
 
 use crate::legacy_print_string_blocking;
 use bcm2835_lpa::UART1;
-use quartz::arch::arm1176::__dsb;
+use quartz::arch::arm1176::dsb;
 
 const GET_CODE: u32 = okboot_common::su_boot::Command::GetCode as u32;
 const BOOT_SUCCESS: u32 = okboot_common::su_boot::Command::BootSuccess as u32;
@@ -98,7 +98,7 @@ pub fn perform_download(uart: &UART1) {
     }
 
     fn write_bytes_from_uart(uart: &UART1, n_bytes: usize, to_addr: *mut u8) {
-        __dsb();
+        dsb();
         let mut i = 0;
         while i < n_bytes {
             while !uart.stat().read().data_ready().bit_is_set() {}
@@ -108,7 +108,7 @@ pub fn perform_download(uart: &UART1) {
             }
             i += 1;
         }
-        __dsb();
+        dsb();
     }
 
     let verify_crc32 = if relocate {

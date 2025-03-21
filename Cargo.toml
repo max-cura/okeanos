@@ -2,8 +2,9 @@
 resolver = "2"
 members = [
     "common/okboot-common",
+    "host/okdude",
+    "device/antimony",
     "device/bismuth",
-    "device/okboot",
-    "device/quartz", "exnihilo/lichee",
-    "host/okdude", "host/sim",
+    "device/quartz",
+    "device/okboot"
 ]

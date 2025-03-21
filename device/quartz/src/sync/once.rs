@@ -1,4 +1,4 @@
-use crate::arch::arm1176::{__sev, __wfe};
+use crate::arch::arm1176::{sev, wfe};
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -48,11 +48,11 @@ impl<T> OnceLock<T> {
             Ok(_) => {
                 unsafe { (&mut *self.inner.get()).write(f()) };
                 self.state.store(READY, Ordering::Release);
-                __sev();
+                sev();
             }
             Err(_) => {
                 while self.state.load(Ordering::Acquire) != READY {
-                    __wfe();
+                    wfe();
                 }
             }
         }
@@ -86,11 +86,11 @@ impl<T: Sync, F: FnOnce() -> T> OnceLockInit<T, F> {
                     (&mut *self.inner.get()).write(f())
                 };
                 self.state.store(READY, Ordering::Release);
-                __sev();
+                sev();
             }
             Err(_) => {
                 while self.state.load(Ordering::Acquire) != READY {
-                    __wfe();
+                    wfe();
                 }
             }
         }

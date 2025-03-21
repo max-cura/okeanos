@@ -3,7 +3,11 @@ name = "quartz"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+test = false
+
 [dependencies]
 lock_api = { version = "0.4.12", default-features = false }
 bcm2835-lpa = "0.4.0"
 thiserror = { version = "1.0", package = "thiserror-core", default-features = false }
+proc-bitfield = "0.5.2"

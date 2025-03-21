@@ -9,7 +9,7 @@ use core::cell::UnsafeCell;
 use core::time::Duration;
 use okboot_common::frame::{BufferedEncoder, FrameError, FrameHeader, FrameLayer, FrameOutput};
 use okboot_common::{COBS_XOR, INITIAL_BAUD_RATE};
-use quartz::arch::arm1176::__dsb;
+use quartz::arch::arm1176::dsb;
 use quartz::device::bcm2835::mini_uart::mini_uart1_flush_tx;
 use quartz::device::bcm2835::timing::{self, Instant};
 use thiserror::Error;
@@ -52,12 +52,12 @@ pub trait Protocol {
 }
 
 pub fn flush_to_fifo(sink: &mut FrameSink, uart: &UART1) {
-    __dsb();
+    dsb();
     while let Some(b) = sink.buffer_mut().shift_byte() {
         while uart.stat().read().tx_ready().bit_is_clear() {}
         uart.io().write(|w| unsafe { w.data().bits(b) })
     }
-    __dsb();
+    dsb();
 }
 
 struct GetProgInfoSender {
@@ -153,7 +153,7 @@ pub fn run(peripherals: &Peripherals) {
         // let tx_did_send = false;
         // -- end debug --
 
-        __dsb();
+        dsb();
         let lsr = uart.lsr().read();
 
         let data_available = lsr.data_ready().bit_is_set();
@@ -166,15 +166,15 @@ pub fn run(peripherals: &Peripherals) {
                 // tx_did_send = true;
             }
         }
-        __dsb();
+        dsb();
 
         if is_overrun {
             recv_state = ReceiveState::error(&peripherals.SYSTMR, ReceiveError::FifoOverrun);
         }
         let byte = if data_available {
-            __dsb();
+            dsb();
             let byte = uart.io().read().data().bits();
-            __dsb();
+            dsb();
 
             Some(byte)
         } else {

@@ -1,4 +1,4 @@
-use crate::arch::arm1176::__dsb;
+use crate::arch::arm1176::dsb;
 use bcm2835_lpa::SYSTMR;
 use core::intrinsics::unlikely;
 use core::time::Duration;
@@ -14,9 +14,9 @@ unsafe fn __floating_time_unguarded(st: &SYSTMR) -> u64 {
 /// When possible, you should prefer the use of [`Instant`].
 pub fn __floating_time(st: &SYSTMR) -> u64 {
     // CHI|CLO runs on a 1MHz oscillator
-    __dsb();
+    dsb();
     let t = unsafe { __floating_time_unguarded(st) };
-    __dsb();
+    dsb();
     t
 }
 
@@ -54,7 +54,7 @@ pub fn delay_millis(st: &SYSTMR, mut milliseconds: u64) {
 /// waits for at least `microseconds`, but in practice, in a no-interrupts setting, it should be
 /// exact due to the difference in clock rate.
 pub fn delay_micros(st: &SYSTMR, microseconds: u64) {
-    __dsb();
+    dsb();
     let start = unsafe { __floating_time_unguarded(st) };
     let end = start.wrapping_add(microseconds);
     if unlikely(end < start) {
@@ -101,5 +101,5 @@ pub fn delay_micros(st: &SYSTMR, microseconds: u64) {
             // do nothing
         }
     }
-    __dsb();
+    dsb();
 }

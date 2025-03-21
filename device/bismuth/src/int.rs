@@ -1,7 +1,8 @@
 use core::arch::asm;
-use quartz::arch::arm1176::__dsb;
+use quartz::arch::arm1176::dsb;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[repr(u32)]
 pub enum InterruptMode {
     Neither = 0,
     FiqOnly = 1,
@@ -13,7 +14,7 @@ const IRQ_BIT: u32 = 0x0000_0080;
 const FIQ_BIT: u32 = 0x0000_0040;
 
 pub fn set_enabled_interrupts(mode: InterruptMode) -> InterruptMode {
-    __dsb();
+    dsb();
     let (clear_mask, set_mask) = match mode {
         InterruptMode::Neither => (0, IRQ_BIT | FIQ_BIT),
         InterruptMode::IrqOnly => (IRQ_BIT, FIQ_BIT),
@@ -34,7 +35,7 @@ pub fn set_enabled_interrupts(mode: InterruptMode) -> InterruptMode {
             cpsr_out = out(reg) cpsr_copy,
         );
     }
-    __dsb();
+    dsb();
     interrupt_mode_from_bits(cpsr_copy)
 }
 

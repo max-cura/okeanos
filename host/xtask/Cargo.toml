@@ -1,0 +1,17 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.30", features = ["derive"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+eyre = "0.6.12"
+color-eyre = "0.6.3"
+duct = "0.13.7"
+console = "0.15.10"
+chrono = "0.4.39"
+fancy-duration = { version = "0.9.2", features = ["chrono"] }
+cargo_metadata = "0.19.1"
+toml = "0.8.20"

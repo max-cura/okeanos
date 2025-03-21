@@ -1,4 +1,4 @@
-use crate::arch::arm1176::__dsb;
+use crate::arch::arm1176::dsb;
 use core::arch::asm;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -61,7 +61,7 @@ pub unsafe fn __disable_mmu() {
     // invalidate the TLBs in the corresponding world before you re-enable the MMU, see c8,
     // TLB Operations Register on page 3-86.
     // 2. Clear bit 0 to 0 in the CP15 Control Register c1 of the corresponding world.
-    __dsb();
+    dsb();
     // disable dcache
     unsafe {
         asm!("mrc p15, 0, {t}, c1, c0, 0", "and {t}, {t}, {off}", "mcr p15, 0, {t}, c1, c0, 0",
@@ -75,7 +75,7 @@ pub unsafe fn __disable_mmu() {
         off = in(reg) !1,
         );
     }
-    __dsb();
+    dsb();
 }
 
 #[inline(never)]

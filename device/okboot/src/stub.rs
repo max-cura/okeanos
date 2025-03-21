@@ -210,9 +210,9 @@ pub mod elf {
     use core::alloc::Layout;
     use core::arch::asm;
     use elf::segment::Elf32_Phdr;
-    use quartz::arch::arm1176::__dsb;
+    use quartz::arch::arm1176::dsb;
     use quartz::arch::arm1176::mmu::__disable_mmu;
-    use quartz::device::bcm2835::mini_uart::muart1_init;
+    use quartz::device::bcm2835::mini_uart::{baud_to_clock_divider, muart1_init};
     use quartz::device::bcm2835::timing::delay_millis;
 
     pub unsafe fn final_relocation(
@@ -222,13 +222,18 @@ pub mod elf {
         elf: &[u8],
         entry: usize,
     ) -> ! {
-        muart1_init(&peripherals.GPIO, &peripherals.AUX, &peripherals.UART1, 270);
+        muart1_init(
+            &peripherals.GPIO,
+            &peripherals.AUX,
+            &peripherals.UART1,
+            270, // baud_to_clock_divider(okboot_common::BAUD_RATE as u32),
+        );
 
         delay_millis(&peripherals.SYSTMR, 1000);
         let stub_begin = &raw const __symbol_relocation_elf;
         let stub_end = &raw const __symbol_relocation_elf_end;
 
-        __dsb();
+        dsb();
         peripherals
             .GPIO
             .gpfsel2()
@@ -237,7 +242,7 @@ pub mod elf {
         //     .GPIO
         //     .gpset0()
         //     .write_with_zero(|w| w.set27().set_bit());
-        __dsb();
+        dsb();
 
         let stub_len = unsafe { stub_end.byte_offset_from(stub_begin) as usize };
         legacy_print_string_blocking!(&peripherals.UART1, "\t[elf] stub code={stub_begin:#?}\n");

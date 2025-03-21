@@ -1,5 +1,6 @@
 #![feature(iter_intersperse)]
 #![feature(assert_matches)]
+#![feature(unsigned_is_multiple_of)]
 
 mod echo;
 mod suboot;
@@ -14,12 +15,16 @@ use std::fs::DirEntry;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileTypeExt;
 use std::path::PathBuf;
+use tracing_subscriber::EnvFilter;
 
 pub const DEFAULT_LOAD_ADDRESS: u64 = 0x8000;
 
 fn main() {
     color_eyre::install().expect("Failed to install `color_eyre`");
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .map_event_format(|f| f.without_time())
+        .init();
 
     let args = parse_args();
 
@@ -34,6 +39,7 @@ pub struct Args {
     quiet: bool,
     file: PathBuf,
     format_details: FormatDetails,
+    args: Vec<String>,
 }
 
 fn parse_args() -> Args {
@@ -82,14 +88,13 @@ fn parse_args() -> Args {
             .exit();
     };
 
-    if object_type == ObjectType::Bin {}
     let format_details = match object_type {
         ObjectType::Elf => {
             if args.load_address.is_some() {
                 CmdArgs::command()
                     .error(
                         clap::error::ErrorKind::ArgumentConflict,
-                        "--load-address can only be specified if file is a bin",
+                        "--load-address can only be specified if file is BIN",
                     )
                     .exit();
             }
@@ -103,6 +108,14 @@ fn parse_args() -> Args {
                 );
                 DEFAULT_LOAD_ADDRESS
             });
+            if !args.arg.is_empty() {
+                CmdArgs::command()
+                    .error(
+                        clap::error::ErrorKind::ArgumentConflict,
+                        "--arg can only be specified if file type is ELF",
+                    )
+                    .exit();
+            }
             FormatDetails::Bin { load_address }
         }
     };
@@ -112,6 +125,7 @@ fn parse_args() -> Args {
         quiet: args.quiet,
         file: args.file,
         format_details,
+        args: args.arg,
     }
 }
 
@@ -173,14 +187,17 @@ struct CmdArgs {
     #[arg(short, long)]
     pub quiet: bool,
 
-    #[arg(required = true)]
-    pub file: PathBuf,
-
     #[arg(long)]
     pub override_object_type: Option<ObjectType>,
 
-    /* filetype: .bin
+    /* BEGIN FILE TYPE: .bin
      */
     #[arg(short, long, value_parser = clap_num::maybe_hex::<u64>)]
     pub load_address: Option<u64>,
+
+    #[arg(required = true)]
+    pub file: PathBuf,
+
+    #[arg(short, long, action = clap::ArgAction::Append, default_values_t = Vec::<String>::new())]
+    pub arg: Vec<String>,
 }

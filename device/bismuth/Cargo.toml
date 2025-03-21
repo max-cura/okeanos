@@ -6,6 +6,7 @@ edition = "2024"
 [lib]
 crate-type = ["staticlib"]
 test = false
+bench = false
 
 [dependencies]
 quartz = { path = "../quartz" }
@@ -16,4 +17,5 @@ critical-section = { version = "1.2.0", features = ["restore-state-u32"] }
 lock_api = "0.4.12"
 proc-bitfield = { version = "0.5.2", features = ["nightly"] }
 volatile-register = "0.2.2"
-bytemuck = "1.21.0"
+bytemuck = { version = "1.21.0", default-features = false, features = [] }
+crc32fast = { version = "1.4.2", default-features = false, features = ["nightly"] }

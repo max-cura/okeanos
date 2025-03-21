@@ -1,4 +1,4 @@
-use crate::arch::arm1176::{__dsb, __sev, __wfe};
+use crate::arch::arm1176::{dmb, sev, wfe};
 use core::arch::asm;
 use lock_api::{GuardSend, RawMutex, RawMutexFair};
 
@@ -45,7 +45,7 @@ unsafe impl RawMutex for RawTicketLock {
         let mut raw_val = Self { raw: raw_val };
         unsafe {
             while raw_val.ordered.owner != raw_val.ordered.next {
-                __wfe();
+                wfe();
                 raw_val.ordered.owner =
                     core::intrinsics::atomic_load_acquire(core::ptr::from_ref(&self.ordered.owner));
             }
@@ -53,6 +53,7 @@ unsafe impl RawMutex for RawTicketLock {
         let _ = ticket;
 
         /* linux has smb_mb here, but it doesn't seem like that's implemented on arm1176jzf-s */
+        dmb();
     }
 
     fn try_lock(&self) -> bool {
@@ -79,6 +80,7 @@ unsafe impl RawMutex for RawTicketLock {
         }
         if contended == 0 {
             /* smp_mb */
+            dmb();
             true
         } else {
             false
@@ -87,11 +89,11 @@ unsafe impl RawMutex for RawTicketLock {
 
     unsafe fn unlock(&self) {
         /* smp_mb */
-        __dsb();
+        dmb();
         unsafe {
             core::intrinsics::atomic_xadd_acqrel(core::ptr::from_ref(&self.raw).cast_mut(), 1);
         }
-        __sev();
+        sev();
     }
 }
 

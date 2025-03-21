@@ -1,63 +1,64 @@
+pub mod coprocessor;
+pub mod cpuid;
 pub mod cycle;
 pub mod mmu;
 pub mod pmm;
 pub mod sync;
 pub mod tpid;
 
+use crate::define_coprocessor_registers;
 use core::arch::asm;
 
-#[macro_export]
-macro_rules! cpreg {
-    ($name:ident, $p:ident, $op1:literal, $crn:ident, $crm:ident, $op2:literal) => {
-        pub mod $name {
-            $crate::cpreg!(@const $name, $p, $op1, $crn, $crm, $op2);
-            $crate::cpreg!(@mut $name, $p, $op1, $crn, $crm, $op2);
-        }
-    };
-    (read $name:ident, $p:ident, $op1:literal, $crn:ident, $crm:ident, $op2:literal) => {
-        pub mod $name {
-            $crate::cpreg!(@const $name, $p, $op1, $crn, $crm, $op2);
-        }
-    };
-    (write $name:ident, $p:ident, $op1:literal, $crn:ident, $crm:ident, $op2:literal) => {
-        pub mod $name {
-            $crate::cpreg!(@mut $name, $p, $op1, $crn, $crm, $op2);
-        }
-    };
-    (@const $name:ident, $p:ident, $op1:literal, $crn:ident, $crm:ident, $op2:literal) => {
-        #[allow(unused)]
-        pub unsafe fn read() -> usize {
-            let mut out : usize;
-            unsafe { ::core::arch::asm!(
-                     concat!("mrc ",stringify!($p),", ",$op1,", {tmp}, ",stringify!($crn),", ",stringify!($crm),", ",$op2),
-                     tmp = out(reg) out) };
-            out
-        }
-    };
-    (@mut $name:ident, $p:ident, $op1:literal, $crn:ident, $crm:ident, $op2:literal) => {
-        #[allow(unused)]
-        pub unsafe fn write(arg: usize) {
-            unsafe { ::core::arch::asm!(
-                     concat!("mcr ",stringify!($p),", ",$op1,", {tmp}, ",stringify!($crn),", ",stringify!($crm),", ",$op2),
-                     tmp = in(reg) arg) };
-        }
-    };
+define_coprocessor_registers! {
+    translation_table_base_0 => p15 0 c2 c0 0;
+    translation_table_base_1 => p15 0 c2 c0 1;
+    translation_table_base_control => p15 0 c2 c0 2;
+
+    domain_access_control => p15 0 c3 c0 0;
+
+    [safe write] wfi => p15 0 c7 c0 4;
+    [safe write] faulty_invalidate_entire_icache => p15 0 c7 c5 0;
+    [safe write] flush_prefetch_buffer => p15 0 c7 c5 4;
+    [safe write] flush_entire_btac => p15 0 c7 c5 6;
+
+    [safe write] invalidate_entire_dcache => p15 0 c7 c6 0;
+
+    [safe write] invalidate_both_caches => p15 0 c7 c7 0;
+    [safe write] clean_entire_dcache => p15 0 c7 c10 0;
+    [safe write] dsb => p15 0 c7 c10 4;
+    [safe write] dmb => p15 0 c7 c10 5;
+
+    [safe write] clean_and_invalidate_entire_dcache => p15 0 c7 c14 0;
 }
-
-cpreg!(write dsb, p15, 0, c7, c10, 4);
-
-pub fn __dsb() {
-    unsafe { dsb::write(0) }
-}
-
-pub const PAGE_SIZE: usize = 0x4000;
 
 #[inline]
-pub fn __wfe() {
+pub fn dmb() {
+    dmb::write_raw(0);
+}
+
+#[inline]
+pub fn dsb() {
+    dsb::write_raw(0);
+}
+
+#[inline]
+pub fn prefetch_flush() {
+    flush_prefetch_buffer::write_raw(0);
+}
+
+#[inline]
+pub fn wfi() {
+    wfi::write_raw(0);
+}
+
+#[inline]
+pub fn wfe() {
     unsafe { asm!("wfe") }
 }
 
 #[inline]
-pub fn __sev() {
+pub fn sev() {
     unsafe { asm!("sev") }
 }
+
+pub const PAGE_SIZE: usize = 0x4000;

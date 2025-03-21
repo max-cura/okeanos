@@ -1,14 +1,14 @@
 use bcm2835_lpa::UART1;
-use quartz::arch::arm1176::__dsb;
+use quartz::arch::arm1176::dsb;
 
 pub fn uart1_write8(uart1_device: &UART1, x: u8) {
-    __dsb();
+    dsb();
 
     while !uart1_device.stat().read().tx_ready().bit_is_set() {}
 
     uart1_device.io().write(|w| unsafe { w.data().bits(x) });
 
-    __dsb();
+    dsb();
 }
 
 pub fn uart1_write_bytes(uart1_device: &UART1, x: &[u8]) {
@@ -30,7 +30,7 @@ pub fn uart1_read32_blocking(uart1_device: &UART1) -> u32 {
 }
 
 pub fn uart1_read8_nb(uart1_device: &UART1) -> Option<u8> {
-    __dsb();
+    dsb();
 
     let r = if uart1_device.stat().read().data_ready().bit_is_set() {
         Some(uart1_device.io().read().data().bits())
@@ -38,26 +38,26 @@ pub fn uart1_read8_nb(uart1_device: &UART1) -> Option<u8> {
         None
     };
 
-    __dsb();
+    dsb();
     r
 }
 
 pub fn uart1_read8_blocking(uart1_device: &UART1) -> u8 {
-    __dsb();
+    dsb();
 
     while !uart1_device.stat().read().data_ready().bit_is_set() {}
 
     let b = uart1_device.io().read().data().bits();
 
-    __dsb();
+    dsb();
 
     b
 }
 
 pub fn uart1_flush_tx(uart1_device: &UART1) {
-    __dsb();
+    dsb();
 
     while !uart1_device.stat().read().tx_empty().bit_is_set() {}
 
-    __dsb();
+    dsb();
 }
